@@ -45,8 +45,9 @@ jobs:
 
       - name: Get changelog entry
         id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
           CHANGELOG_FILE="docs/CHANGELOG.md"
 
           if [ -f "$CHANGELOG_FILE" ]; then

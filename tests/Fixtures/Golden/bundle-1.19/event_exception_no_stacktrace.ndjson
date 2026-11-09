@@ -1,0 +1,3 @@
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","dsn":"https://pubkey:secret@beacon.example.com:9447/1","sent_at":"2024-07-20T16:01:00.123456Z"}
+{"type":"event","content_type":"application/json"}
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","timestamp":1721491260.123456,"datetime":"2024-07-20T16:01:00.123456Z","platform":"php","level":"error","logger":"nowo.beacon","message":"wrapped: payment declined","tags":{"trace_id":"trace-golden-0001"},"extra":{"trace_id":"trace-golden-0001"},"exception":{"values":[{"type":"LogicException","value":"card gateway said api_key=[Filtered]"},{"type":"RuntimeException","value":"payment declined"}]}}

@@ -1,0 +1,3 @@
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","dsn":"https://pubkey:secret@beacon.example.com:9447/1","sent_at":"2024-07-20T16:01:00.123456Z"}
+{"type":"queue_snapshot","content_type":"application/json"}
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"queue_snapshot","timestamp":1721491260.123456,"platform":"php","transports":[{"name":"async","count":3,"failure":false},{"name":"failed","count":null,"failure":true}],"environment":"test","server_name":"ci-host"}

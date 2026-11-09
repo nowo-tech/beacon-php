@@ -1,0 +1,3 @@
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","dsn":"https://pubkey:secret@beacon.example.com:9447/1","sent_at":"2024-07-20T16:01:00.123456Z"}
+{"type":"schedule_catalog","content_type":"application/json"}
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"schedule_catalog","timestamp":1721491260.123456,"platform":"php","environment":"test","server_name":"ci-host","schedules":[{"name":"default","entries":[{"recurring_id":"r1","trigger":"every 5 minutes","description":null}]}]}

@@ -1,0 +1,3 @@
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","dsn":"https://pubkey:secret@beacon.example.com:9447/1","sent_at":"2024-07-20T16:01:00.123456Z"}
+{"type":"check_in","content_type":"application/json"}
+{"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","type":"check_in","timestamp":1721491260.123456,"platform":"php","environment":"test","check_in":{"run_id":"run-1","schedule":"default","recurring_id":"r1","status":"error","triggered_at":1721491260,"error":"RuntimeException"}}

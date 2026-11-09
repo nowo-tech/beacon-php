@@ -127,4 +127,17 @@ final class SymfonyHttpClientTransportTest extends TestCase
         self::assertFalse($transport->flush(0.0));
         self::assertSame(0, $transport->countPending());
     }
+
+    public function testUnflushedAsyncResponsesAreCompletedOnDestruction(): void
+    {
+        $logger    = new ArrayLogger();
+        $client    = new MockHttpClient([new MockResponse('', ['http_code' => 401])]);
+        $transport = new SymfonyHttpClientTransport($client, (new DsnParser())->parse('https://pk:sk@b.example/1'), logger: $logger, async: true);
+        $transport->send('x');
+
+        unset($transport);
+
+        self::assertCount(1, $logger->records);
+        self::assertStringContainsString('authentication rejected', $logger->records[0]['message']);
+    }
 }

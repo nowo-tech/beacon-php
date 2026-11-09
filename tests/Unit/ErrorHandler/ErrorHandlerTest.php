@@ -13,6 +13,8 @@ use Throwable;
 use WeakReference;
 
 use function error_reporting;
+use function gc_collect_cycles;
+use function implode;
 use function ini_get;
 use function ini_set;
 use function restore_error_handler;
@@ -29,7 +31,9 @@ use const E_DEPRECATED;
 use const E_ERROR;
 use const E_NOTICE;
 use const E_PARSE;
+use const E_RECOVERABLE_ERROR;
 use const E_USER_DEPRECATED;
+use const E_USER_ERROR;
 use const E_USER_NOTICE;
 use const E_USER_WARNING;
 use const E_WARNING;
@@ -305,8 +309,45 @@ final class ErrorHandlerTest extends TestCase
         self::assertSame('Core Warning', ErrorHandler::levelName(E_CORE_WARNING));
         self::assertSame('Compile Warning', ErrorHandler::levelName(E_COMPILE_WARNING));
         self::assertSame('Warning', ErrorHandler::levelName(E_ERROR));
+        self::assertSame('User Error', ErrorHandler::levelName(E_USER_ERROR));
+        self::assertSame('Recoverable Error', ErrorHandler::levelName(E_RECOVERABLE_ERROR));
+        self::assertSame(E_USER_ERROR | E_RECOVERABLE_ERROR, ErrorHandler::levelsFromNames(['user_error', 'recoverable-error']));
 
         self::assertSame(E_WARNING | E_USER_DEPRECATED, ErrorHandler::levelsFromNames(['Warning', 'user-deprecated', 'unknown']));
         self::assertSame(E_NOTICE | E_USER_NOTICE | E_DEPRECATED | E_USER_WARNING | E_CORE_WARNING | E_COMPILE_WARNING, ErrorHandler::levelsFromNames(['notice', 'user notice', 'deprecated', 'user_warning', 'core_warning', 'compile_warning']));
+    }
+
+    public function testErrorLevelsAreReportedAsErrorsAndFingerprintsAreRedacted(): void
+    {
+        $client  = new RecordingClient();
+        $handler = new ErrorHandler($client, E_USER_ERROR | E_RECOVERABLE_ERROR | E_WARNING);
+
+        $handler->handleError(E_USER_ERROR, 'stop', 'f.php', 1);
+        $handler->handleError(E_RECOVERABLE_ERROR, 'bad arg', 'f.php', 2);
+        $handler->handleError(E_WARNING, 'file_get_contents(https://user:t0ken@api.example/x): failed', 'f.php', 3);
+
+        self::assertSame('error', $client->events[0]['level'] ?? null);
+        self::assertSame('User Error: stop', $client->events[0]['message']);
+        self::assertSame('error', $client->events[1]['level'] ?? null);
+        $fingerprint = $client->events[2]['fingerprint'] ?? [];
+        self::assertStringNotContainsString('t0ken', implode('|', $fingerprint));
+        self::assertSame('file_get_contents(https://user:[Filtered]@api.example/x): failed', $fingerprint[2] ?? null);
+    }
+
+    public function testRegisteredHandlerStaysAliveUntilUnregistered(): void
+    {
+        $before    = ErrorHandler::countRegistered();
+        $client    = new RecordingClient();
+        $handler   = ErrorHandler::register($client, ['errors' => 0, 'capture_silenced' => false, 'exceptions' => false, 'fatal' => true, 'swallow' => false]);
+        $reference = WeakReference::create($handler);
+        unset($handler);
+        gc_collect_cycles();
+
+        self::assertSame($before + 1, ErrorHandler::countRegistered());
+        $alive = $reference->get();
+        self::assertInstanceOf(ErrorHandler::class, $alive);
+
+        $alive->unregister();
+        self::assertSame($before, ErrorHandler::countRegistered());
     }
 }

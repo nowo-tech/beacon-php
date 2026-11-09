@@ -96,6 +96,19 @@ final class SymfonyHttpClientTransport implements TransportInterface
     }
 
     /**
+     * Responses that were never flushed are completed here (each bounded by `$timeout`), so Symfony's response
+     * destructor never throws a 3xx / 4xx / 5xx at script end. Prefer calling {@see flush()} with a deadline.
+     */
+    public function __destruct()
+    {
+        $pending       = $this->pending;
+        $this->pending = [];
+        foreach ($pending as $response) {
+            $this->finalize($response); // never throws: failures become a TransportResult
+        }
+    }
+
+    /**
      * Number of started, not yet completed requests (async mode).
      */
     public function countPending(): int

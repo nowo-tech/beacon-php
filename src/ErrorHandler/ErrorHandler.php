@@ -8,11 +8,13 @@ use Closure;
 use ErrorException;
 use Nowo\Beacon\ClientInterface;
 use Nowo\Beacon\LifecycleInterface;
+use Nowo\Beacon\Scrubber\SensitiveValueRedactor;
 use ReflectionFunction;
 use Throwable;
 use WeakMap;
 use WeakReference;
 
+use function count;
 use function error_get_last;
 use function error_reporting;
 use function in_array;
@@ -39,6 +41,7 @@ use const E_DEPRECATED;
 use const E_ERROR;
 use const E_NOTICE;
 use const E_PARSE;
+use const E_RECOVERABLE_ERROR;
 use const E_USER_DEPRECATED;
 use const E_USER_ERROR;
 use const E_USER_NOTICE;
@@ -57,8 +60,10 @@ use const E_WARNING;
  *   rethrown so that PHP prints / logs it and exits with code 255 as without a handler.
  * - Shutdown ({@see handleShutdown()}): a fatal error from `error_get_last()` (E_ERROR, E_PARSE, E_CORE_ERROR,
  *   E_COMPILE_ERROR, E_USER_ERROR) is captured as an `ErrorException` with `extra.fatal`, then the client is flushed
- *   with `$flushTimeout` (never longer). 32 KiB are reserved up front and released at shutdown so an out-of-memory
- *   fatal can still be reported.
+ *   with `$flushTimeout`. Worst case at shutdown: one synchronous send of the fatal / uncaught event (bounded by the
+ *   transport's own request timeout, `timeout` option for the bundled clients) plus the flush (`$flushTimeout`, plus
+ *   at most one in-progress request timeout). A PSR-18 client without a timeout of its own is not bounded at all.
+ *   32 KiB are reserved up front and released at shutdown so an out-of-memory fatal can still be reported.
  *
  * No double capture: an exception already captured (or rethrown by a chained handler) is not captured again, an
  * `ErrorException` that a previous error handler built from an error this handler already captured is skipped, and the
@@ -77,6 +82,9 @@ final class ErrorHandler
     private const RESERVED_MEMORY_BYTES = 32768;
 
     private const OOM_EXTRA_BYTES = 5 * 1024 * 1024;
+
+    /** @var array<int, self> handlers with a shutdown function, until unregister() */
+    private static array $registered = [];
 
     private ?ClientInterface $client;
 
@@ -171,7 +179,9 @@ final class ErrorHandler
 
         $this->shutdownRegistered = true;
         $this->reservedMemory     = str_repeat('x', self::RESERVED_MEMORY_BYTES);
-        // Only a weak reference is kept: an unregistered handler (and its client) can be freed.
+        // Kept alive until unregister(), even when the caller drops the returned handler (a fatal-only handler has no
+        // set_*_handler closure holding it). The shutdown function itself only holds a weak reference.
+        self::$registered[spl_object_id($this)] = $this;
         register_shutdown_function(self::dispatchShutdown(...), WeakReference::create($this));
     }
 
@@ -210,6 +220,15 @@ final class ErrorHandler
         $this->previousExceptionHandler = null;
         $this->reservedMemory           = null;
         $this->client                   = null;
+        unset(self::$registered[spl_object_id($this)]);
+    }
+
+    /**
+     * Number of handlers kept alive by {@see registerShutdownFunction()} (diagnostics, tests).
+     */
+    public static function countRegistered(): int
+    {
+        return count(self::$registered);
     }
 
     /**
@@ -336,15 +355,17 @@ final class ErrorHandler
     public static function levelName(int $type): string
     {
         return match (true) {
-            0 !== ($type & E_USER_WARNING)    => 'User Warning',
-            0 !== ($type & E_WARNING)         => 'Warning',
-            0 !== ($type & E_USER_NOTICE)     => 'User Notice',
-            0 !== ($type & E_NOTICE)          => 'Notice',
-            0 !== ($type & E_USER_DEPRECATED) => 'User Deprecated',
-            0 !== ($type & E_DEPRECATED)      => 'Deprecated',
-            0 !== ($type & E_CORE_WARNING)    => 'Core Warning',
-            0 !== ($type & E_COMPILE_WARNING) => 'Compile Warning',
-            default                           => 'Warning',
+            0 !== ($type & E_USER_ERROR)        => 'User Error',
+            0 !== ($type & E_RECOVERABLE_ERROR) => 'Recoverable Error',
+            0 !== ($type & E_USER_WARNING)      => 'User Warning',
+            0 !== ($type & E_WARNING)           => 'Warning',
+            0 !== ($type & E_USER_NOTICE)       => 'User Notice',
+            0 !== ($type & E_NOTICE)            => 'Notice',
+            0 !== ($type & E_USER_DEPRECATED)   => 'User Deprecated',
+            0 !== ($type & E_DEPRECATED)        => 'Deprecated',
+            0 !== ($type & E_CORE_WARNING)      => 'Core Warning',
+            0 !== ($type & E_COMPILE_WARNING)   => 'Compile Warning',
+            default                             => 'Warning',
         };
     }
 
@@ -356,14 +377,16 @@ final class ErrorHandler
     public static function levelsFromNames(array $names): int
     {
         $map = [
-            'warning'         => E_WARNING,
-            'user_warning'    => E_USER_WARNING,
-            'notice'          => E_NOTICE,
-            'user_notice'     => E_USER_NOTICE,
-            'deprecated'      => E_DEPRECATED,
-            'user_deprecated' => E_USER_DEPRECATED,
-            'core_warning'    => E_CORE_WARNING,
-            'compile_warning' => E_COMPILE_WARNING,
+            'warning'           => E_WARNING,
+            'user_warning'      => E_USER_WARNING,
+            'notice'            => E_NOTICE,
+            'user_notice'       => E_USER_NOTICE,
+            'deprecated'        => E_DEPRECATED,
+            'user_deprecated'   => E_USER_DEPRECATED,
+            'core_warning'      => E_CORE_WARNING,
+            'compile_warning'   => E_COMPILE_WARNING,
+            'user_error'        => E_USER_ERROR,
+            'recoverable_error' => E_RECOVERABLE_ERROR,
         ];
 
         $bits = 0;
@@ -398,7 +421,11 @@ final class ErrorHandler
     private function captureError(ClientInterface $client, int $type, string $message, string $file, int $line): void
     {
         $label = self::levelName($type);
-        $level = 0 !== ($type & (E_WARNING | E_USER_WARNING | E_CORE_WARNING | E_COMPILE_WARNING)) ? 'warning' : 'info';
+        $level = match (true) {
+            0 !== ($type & (E_USER_ERROR | E_RECOVERABLE_ERROR))                              => 'error',
+            0 !== ($type & (E_WARNING | E_USER_WARNING | E_CORE_WARNING | E_COMPILE_WARNING)) => 'warning',
+            default                                                                           => 'info',
+        };
 
         $client->captureMessage(
             $label . ': ' . $message,
@@ -415,7 +442,8 @@ final class ErrorHandler
             [
                 'php-warning',
                 $label,
-                $message,
+                // The fingerprint is stored as is by Beacon: no secret may survive in it.
+                SensitiveValueRedactor::redactMessage($message),
                 $file . ':' . $line,
             ],
         );

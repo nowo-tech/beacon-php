@@ -236,6 +236,30 @@ final class ClientTest extends TestCase
         self::assertFalse(Client::fromDsn('')->isEnabled());
     }
 
+    public function testSameThrowableIsSentOnceUnlessDedupeIsOff(): void
+    {
+        $transport = new RecordingTransport();
+        $client    = $this->client([], $transport);
+        $exception = new RuntimeException('reported twice');
+
+        $first = $client->captureException($exception);
+        self::assertSame($first, $client->captureException($exception, ['via' => 'monolog']));
+        self::assertCount(1, $transport->bodies);
+
+        $client->reset();
+        self::assertNotSame($first, $client->captureException($exception));
+
+        $plain = $this->client(['dedupe' => false], $transport);
+        $plain->captureException($exception);
+        $plain->captureException($exception);
+        self::assertCount(4, $transport->bodies);
+
+        // A dropped capture is not remembered.
+        $dropping = $this->client(['before_send' => static fn (): ?array => null], $transport);
+        self::assertNull($dropping->captureException($exception));
+        self::assertNull($dropping->captureException($exception));
+    }
+
     public function testNullClient(): void
     {
         $client = new NullClient();

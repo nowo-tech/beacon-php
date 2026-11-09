@@ -22,6 +22,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use SensitiveParameter;
 use Throwable;
+use WeakMap;
 
 use function is_array;
 use function json_decode;
@@ -66,6 +67,9 @@ final class Client implements ClientInterface, CheckInCapableInterface, DeployCa
 
     private ?string $lastEventId = null;
 
+    /** @var WeakMap<Throwable, string> throwables already sent (option `dedupe`) → their event id */
+    private WeakMap $captured;
+
     /**
      * Inject `$transport` / `$envelopeBuilder` / the state objects only when adapting another integration (the
      * builder must then read the same scope, breadcrumbs and trace provider).
@@ -79,6 +83,7 @@ final class Client implements ClientInterface, CheckInCapableInterface, DeployCa
         ?TraceIdProvider $traceIdProvider = null,
         ?SpanBuffer $spanBuffer = null,
     ) {
+        $this->captured        = new WeakMap();
         $this->scope           = $scope ?? new Scope();
         $this->breadcrumbs     = $breadcrumbs ?? new BreadcrumbBuffer();
         $this->traceIdProvider = $traceIdProvider ?? new TraceIdProvider();
@@ -120,12 +125,25 @@ final class Client implements ClientInterface, CheckInCapableInterface, DeployCa
         return !$this->closed && $this->options->isActive();
     }
 
+    /**
+     * With option `dedupe` (default), the same Throwable instance is sent once: a second capture (framework report
+     * hook + Monolog channel + middleware, …) returns the first event id without sending.
+     */
     public function captureException(Throwable $throwable, array $extra = [], ?array $fingerprint = null): ?string
     {
-        return $this->capture(
+        if ($this->options->dedupe && isset($this->captured[$throwable])) {
+            return $this->captured[$throwable];
+        }
+
+        $eventId = $this->capture(
             fn (Dsn $dsn): Envelope => $this->envelopeBuilder->eventEnvelope($dsn, $throwable->getMessage(), 'error', $throwable, $extra, $fingerprint),
             true,
         );
+        if ($eventId !== null && $this->options->dedupe) {
+            $this->captured[$throwable] = $eventId;
+        }
+
+        return $eventId;
     }
 
     public function captureMessage(
@@ -261,6 +279,7 @@ final class Client implements ClientInterface, CheckInCapableInterface, DeployCa
         $this->breadcrumbs->reset();
         $this->spanBuffer->reset();
         $this->traceIdProvider->reset();
+        $this->captured = new WeakMap();
     }
 
     /**

@@ -74,6 +74,7 @@ final readonly class Options
         'clock',
         'envelope_dsn',
         'scrub',
+        'dedupe',
         'error_handler',
         'framework',
         'request_provider',
@@ -88,6 +89,10 @@ final readonly class Options
     public const DEFAULT_TIMEOUT = 5.0;
 
     public const DEFAULT_SHUTDOWN_TIMEOUT = 2.0;
+
+    public const MAX_TIMEOUT = 60.0;
+
+    public const MAX_SHUTDOWN_TIMEOUT = 300.0;
 
     /**
      * @param (Closure(array<string, mixed>): (array<string, mixed>|null))|null $beforeSend
@@ -120,6 +125,7 @@ final readonly class Options
         public ?ClockInterface $clock,
         public EnvelopeDsnMode $envelopeDsn,
         public bool $scrub,
+        public bool $dedupe,
         public ?array $errorHandler,
         public ?array $framework,
         public ?RequestContextProviderInterface $requestProvider,
@@ -189,9 +195,9 @@ final readonly class Options
             serverName: $serverName === null ? (gethostname() ?: 'unknown') : self::requireString($serverName, 'server_name'),
             send: SendOptions::fromArray($send),
             stackContextLines: self::int($options, 'stack_context_lines', 5, 0),
-            timeout: self::float($options, 'timeout', self::DEFAULT_TIMEOUT, 0.1),
+            timeout: self::float($options, 'timeout', self::DEFAULT_TIMEOUT, 0.1, self::MAX_TIMEOUT),
             verifyPeer: self::bool($options, 'verify_peer', true),
-            shutdownTimeout: self::float($options, 'shutdown_timeout', self::DEFAULT_SHUTDOWN_TIMEOUT, 0.0),
+            shutdownTimeout: self::float($options, 'shutdown_timeout', self::DEFAULT_SHUTDOWN_TIMEOUT, 0.0, self::MAX_SHUTDOWN_TIMEOUT),
             beforeSend: self::closure($options, 'before_send'),
             transport: self::instance($options, 'transport', TransportInterface::class),
             httpClient: self::httpClient($options),
@@ -203,6 +209,7 @@ final readonly class Options
             clock: self::instance($options, 'clock', ClockInterface::class),
             envelopeDsn: $envelopeDsn,
             scrub: self::bool($options, 'scrub', true),
+            dedupe: self::bool($options, 'dedupe', true),
             errorHandler: self::errorHandler($options['error_handler'] ?? true),
             framework: self::framework($options['framework'] ?? null),
             requestProvider: self::instance($options, 'request_provider', RequestContextProviderInterface::class),
@@ -257,11 +264,11 @@ final readonly class Options
     /**
      * @param array<array-key, mixed> $options
      */
-    private static function float(array $options, string $key, float $default, float $min): float
+    private static function float(array $options, string $key, float $default, float $min, float $max): float
     {
         $value = $options[$key] ?? $default;
-        if ((!is_float($value) && !is_int($value)) || $value < $min) {
-            throw new ConfigurationException(sprintf('The "%s" option must be a number >= %s.', $key, (string) $min));
+        if ((!is_float($value) && !is_int($value)) || !is_finite((float) $value) || $value < $min || $value > $max) {
+            throw new ConfigurationException(sprintf('The "%s" option must be a finite number between %s and %s.', $key, (string) $min, (string) $max));
         }
 
         return (float) $value;

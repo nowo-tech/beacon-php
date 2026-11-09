@@ -21,6 +21,9 @@ use stdClass;
 
 use function putenv;
 
+use const INF;
+use const NAN;
+
 final class OptionsTest extends TestCase
 {
     protected function tearDown(): void
@@ -42,6 +45,7 @@ final class OptionsTest extends TestCase
         self::assertSame(2.0, $options->shutdownTimeout);
         self::assertSame(EnvelopeDsnMode::None, $options->envelopeDsn);
         self::assertTrue($options->scrub);
+        self::assertTrue($options->dedupe);
         self::assertFalse($options->async);
         self::assertNull($options->queue);
         self::assertFalse($options->send->client);
@@ -126,8 +130,13 @@ final class OptionsTest extends TestCase
         yield 'release' => [['release' => 5], 'The "release" option must be a non-empty string.'];
         yield 'server name' => [['server_name' => 7], 'The "server_name" option must be a non-empty string.'];
         yield 'context lines' => [['stack_context_lines' => -1], 'The "stack_context_lines" option must be an integer >= 0.'];
-        yield 'timeout' => [['timeout' => 0], 'The "timeout" option must be a number >= 0.1.'];
-        yield 'timeout type' => [['timeout' => '5'], 'The "timeout" option must be a number'];
+        yield 'timeout' => [['timeout' => 0], 'The "timeout" option must be a finite number between 0.1 and 60.'];
+        yield 'timeout type' => [['timeout' => '5'], 'The "timeout" option must be a finite number'];
+        yield 'timeout nan' => [['timeout' => NAN], 'The "timeout" option must be a finite number between 0.1 and 60.'];
+        yield 'timeout too long' => [['timeout' => 61], 'The "timeout" option must be a finite number'];
+        yield 'shutdown inf' => [['shutdown_timeout' => INF], 'The "shutdown_timeout" option must be a finite number between 0 and 300.'];
+        yield 'shutdown nan' => [['shutdown_timeout' => NAN], 'The "shutdown_timeout" option must be a finite number'];
+        yield 'dedupe' => [['dedupe' => 'yes'], 'The "dedupe" option must be a boolean.'];
         yield 'before send' => [['before_send' => 'not_a_function_anywhere'], 'The "before_send" option must be callable.'];
         yield 'transport' => [['transport' => new stdClass()], 'The "transport" option must be an instance of'];
         yield 'http client' => [['http_client' => new stdClass()], 'The "http_client" option must be a PSR-18 client'];

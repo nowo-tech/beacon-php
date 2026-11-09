@@ -71,10 +71,8 @@ $handlers->unregister();   // restores the previous handlers (e.g. in tests)
 ```
 
 A registered handler stays alive until `unregister()`, even if you drop the returned object (a fatal-only handler
-has no PHP handler closure keeping it).
-
-```php
-```
+has no PHP handler closure keeping it). Calling `ErrorHandler::register()` again without `unregister()` therefore
+keeps every earlier handler (and its client) alive and reporting too: unregister the old one first.
 
 `Client` implements `ClientInterface` (same methods as BeaconBundle's `BeaconClientInterface`),
 `CheckInCapableInterface`, `DeployCapableInterface`, `QueueSnapshotCapableInterface` and `LifecycleInterface`

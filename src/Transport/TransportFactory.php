@@ -28,9 +28,11 @@ use function class_exists;
  * 2. `http_client` option: a PSR-18 client → {@see Psr18Transport} (request / stream factories from the options, from
  *    the client itself when it implements them, else php-http/discovery); a Symfony `HttpClientInterface` →
  *    {@see SymfonyHttpClientTransport}.
- * 3. Auto-detection, chosen so that the request timeout is always enforced:
- *    symfony/http-client (`timeout` + `max_duration`) → guzzlehttp/guzzle (`timeout` + `connect_timeout`) →
- *    php-http/discovery (the discovered client's own timeout) → {@see MissingHttpClientException}.
+ * 3. Auto-detection, preferring clients whose timeout and redirect policy beacon-php can enforce:
+ *    symfony/http-client (`timeout` + `max_duration`, no redirects) → guzzlehttp/guzzle (`timeout` +
+ *    `connect_timeout`, no redirects) → php-http/discovery (enforced only when the discovered client is Guzzle or
+ *    Symfony's `Psr18Client`; any other client keeps its own timeout and redirect policy, see
+ *    {@see Psr18Transport}) → {@see MissingHttpClientException}.
  *
  * With `queue` enabled the result is wrapped in a bounded {@see QueuedTransport}.
  */
@@ -85,6 +87,7 @@ final readonly class TransportFactory
                 $options->streamFactory ?? ($client instanceof StreamFactoryInterface ? $client : $this->discoverStreamFactory()),
                 $dsn,
                 $options->logger,
+                timeout: $options->timeout,
             );
         }
 
@@ -107,6 +110,7 @@ final readonly class TransportFactory
                 $options->streamFactory ?? $factory,
                 $dsn,
                 $options->logger,
+                timeout: $options->timeout,
             );
         }
 
@@ -123,6 +127,7 @@ final readonly class TransportFactory
                 $options->streamFactory ?? $this->discoverStreamFactory(),
                 $dsn,
                 $options->logger,
+                timeout: $options->timeout,
             );
         }
 

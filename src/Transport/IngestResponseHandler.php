@@ -76,6 +76,13 @@ final readonly class IngestResponseHandler
             }
         }
 
+        if ($status >= 300 && $status < 400) {
+            // Never followed (X-Beacon-Auth must not reach another host) and never re-sent.
+            $this->logger->warning('Beacon ingest answered with a redirect, which is not followed. Point BEACON_DSN at the final Beacon URL.', $context);
+
+            return new TransportResult(false, $status, 'Redirect not followed.');
+        }
+
         if ($status === 401 || $status === 403) {
             $this->logger->warning(
                 'Beacon ingest authentication rejected. Confirm BEACON_DSN includes public:secret and matches the project.',

@@ -16,11 +16,11 @@ use Nowo\Beacon\Transport\TransportResult;
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 if (extension_loaded('mbstring')) {
-    fwrite(STDERR, "ext-mbstring is loaded: this check must run without it.\n");
+    fwrite(\STDERR, "ext-mbstring is loaded: this check must run without it.\n");
     exit(1);
 }
 
-$transport = new class () implements TransportInterface {
+$transport = new class implements TransportInterface {
     /** @var list<string> */
     public array $bodies = [];
 
@@ -41,19 +41,19 @@ $client = new Client(Options::fromArray(['dsn' => 'https://pk:client-secret@b.ex
 $client->setTag('city', str_repeat('ñ', 500));
 $id = $client->captureMessage('smoke without mbstring');
 
-if (null === $id || 1 !== count($transport->bodies)) {
-    fwrite(STDERR, "No envelope was sent.\n");
+if ($id === null || count($transport->bodies) !== 1) {
+    fwrite(\STDERR, "No envelope was sent.\n");
     exit(1);
 }
 
 $body = $transport->bodies[0];
 if (!str_contains($body, 'smoke without mbstring')) {
-    fwrite(STDERR, "The envelope does not carry the message.\n");
+    fwrite(\STDERR, "The envelope does not carry the message.\n");
     exit(1);
 }
 foreach (explode("\n", trim($body)) as $line) {
-    if (null === json_decode($line, true)) {
-        fwrite(STDERR, "An envelope line is not valid JSON (broken UTF-8 truncation?).\n");
+    if (json_decode($line, true) === null) {
+        fwrite(\STDERR, "An envelope line is not valid JSON (broken UTF-8 truncation?).\n");
         exit(1);
     }
 }

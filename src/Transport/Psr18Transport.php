@@ -23,7 +23,7 @@ use Throwable;
  *
  * - Guzzle (`GuzzleHttp\ClientInterface`, injected or discovered): every send passes `allow_redirects: false`,
  *   `http_errors: false` and, when `$timeout` is set, `timeout` / `connect_timeout`;
- * - Symfony `Psr18Client` (injected or discovered): wrapped once with `max_redirects: 0` and, when `$timeout` is set,
+ * - Symfony `Psr18Client` ≥ 6.2 (injected or discovered): wrapped once with `max_redirects: 0` and, when `$timeout` is set,
  *   `timeout` / `max_duration`;
  * - any other PSR-18 client: beacon-php cannot change its redirect policy. A 3xx response is treated as a failed,
  *   non-retryable send (never re-sent), but a client that follows redirects internally has already sent the request
@@ -52,7 +52,7 @@ final readonly class Psr18Transport implements TransportInterface
         $this->responses = new IngestResponseHandler($dsn, $logger);
         $this->userAgent = $userAgent ?? Version::userAgent();
 
-        if ($httpClient instanceof SymfonyPsr18Client) {
+        if ($httpClient instanceof SymfonyPsr18Client && self::canWrapWithoutRedirects($httpClient)) {
             $options = ['max_redirects' => 0];
             if ($timeout !== null) {
                 $options += ['timeout' => $timeout, 'max_duration' => $timeout];
@@ -99,6 +99,18 @@ final readonly class Psr18Transport implements TransportInterface
         }
 
         return $this->httpClient->sendRequest($request);
+    }
+
+    /**
+     * Symfony `Psr18Client` with `withOptions()` (symfony/http-client ≥ 6.2, also enforced by a composer conflict);
+     * an older one is handled like any other PSR-18 client (a 3xx is a failed send).
+     *
+     * @internal
+     */
+    public static function canWrapWithoutRedirects(ClientInterface $client): bool
+    {
+        // Always true for the installed symfony/http-client; false for < 6.2 (no withOptions()).
+        return $client instanceof SymfonyPsr18Client && method_exists($client, 'withOptions'); // @phpstan-ignore function.alreadyNarrowedType
     }
 
     private static function header(ResponseInterface $response, string $name): ?string

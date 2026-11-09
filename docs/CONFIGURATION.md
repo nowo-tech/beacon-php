@@ -41,7 +41,7 @@ Redirect policy (a 307/308 would replay `X-Beacon-Auth` and the body to the targ
 | --- | --- | --- |
 | `SymfonyHttpClientTransport` (auto or `http_client: HttpClientInterface`) | never followed (`max_redirects: 0`) | `timeout` + `max_duration` |
 | Guzzle (`GuzzleHttp\ClientInterface`, auto-created, injected or discovered) | never followed (`allow_redirects: false` on every send) | `timeout` + `connect_timeout` |
-| Symfony `Psr18Client` (injected or discovered) | never followed (wrapped with `max_redirects: 0`) | `timeout` + `max_duration` |
+| Symfony `Psr18Client` (injected or discovered; symfony/http-client ≥ 6.2, older versions conflict) | never followed (wrapped with `max_redirects: 0`) | `timeout` + `max_duration` |
 | any other PSR-18 client | **its own policy** — beacon-php cannot change it | **its own** |
 
 For other PSR-18 clients a 3xx response is treated as a failed, non-retryable send (logged, never re-sent), but a

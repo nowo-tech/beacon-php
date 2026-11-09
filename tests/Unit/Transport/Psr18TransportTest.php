@@ -23,6 +23,8 @@ use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
+use const JSON_THROW_ON_ERROR;
+
 final class Psr18TransportTest extends TestCase
 {
     public function testPostsEnvelopeWithAuthHeaderOnly(): void
@@ -125,5 +127,15 @@ final class Psr18TransportTest extends TestCase
         (new Psr18Transport(new Psr18Client($mock), new Psr17Factory(), new Psr17Factory(), $dsn))->send('y');
         self::assertSame(0, $seen[1]['max_redirects']);
         self::assertNotSame(2.0, $seen[1]['timeout'] ?? null);
+    }
+
+    public function testOnlySymfonyPsr18ClientsWithWithOptionsAreWrapped(): void
+    {
+        self::assertTrue(Psr18Transport::canWrapWithoutRedirects(new Psr18Client(new MockHttpClient())));
+        self::assertFalse(Psr18Transport::canWrapWithoutRedirects(new FakePsr18Client()));
+
+        /** @var array{conflict: array<string, string>} $composer */
+        $composer = json_decode((string) file_get_contents(__DIR__ . '/../../../composer.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('<6.2', $composer['conflict']['symfony/http-client']);
     }
 }

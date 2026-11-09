@@ -57,6 +57,9 @@
         "symfony/http-client": "^7.4 || ^8.0",
         "symfony/http-foundation": "^7.4 || ^8.0"
     },
+    "conflict": {
+        "symfony/http-client": "<6.2"
+    },
     "suggest": {
         "symfony/http-client": "Recommended HTTP client: per-request timeout and max_duration, optional non-blocking sends (async option)",
         "guzzlehttp/guzzle": "PSR-18 client auto-configured with the timeout option",

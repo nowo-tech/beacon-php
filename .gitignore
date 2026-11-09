@@ -1,0 +1,16 @@
+/vendor
+/composer.lock.bak
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+.phpunit.result.cache
+.phpunit.cache/
+/coverage/
+/coverage.xml
+/coverage-php.txt
+.php-cs-fixer.cache
+.phpstan.result.cache
+var/
+/.bundle

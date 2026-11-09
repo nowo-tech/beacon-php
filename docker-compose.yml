@@ -1,0 +1,22 @@
+name: beacon-php
+services:
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PHP_VERSION: "${PHP_VERSION:-8.4}"
+    image: beacon-php-php:${PHP_VERSION:-8.4}
+    container_name: beacon-php
+    working_dir: /app
+    volumes:
+      - .:/app
+      - composer-cache:/root/.composer/cache
+    environment:
+      - COMPOSER_ALLOW_SUPERUSER=1
+      # Optional: absolute path of a BeaconBundle checkout mounted at /bundle for the live parity tests.
+      - BEACON_BUNDLE_SRC=${BEACON_BUNDLE_SRC:-}
+    command: ["tail", "-f", "/dev/null"]
+
+volumes:
+  composer-cache:

@@ -1,0 +1,38 @@
+includes:
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    excludePaths:
+        - vendor/*
+        - tests/Parity/BundleUserProvider.php
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false
+    parallel:
+        maximumNumberOfProcesses: 2
+    ignoreErrors:
+        # Tests read decoded envelope JSON (mixed) and assert on it; src/ gets no such exemption.
+        -
+            identifiers:
+                - offsetAccess.nonOffsetAccessible
+                - offsetAccess.notFound
+                - argument.type
+                - return.type
+                - cast.string
+                - foreach.nonIterable
+                - missingType.iterableValue
+                - staticMethod.alreadyNarrowedType
+                - return.unusedType
+            path: tests/*
+        # BeaconBundle classes are only mapped for the live parity run (BEACON_BUNDLE_SRC).
+        -
+            identifiers:
+                - class.notFound
+                - method.notFound
+                - interface.notFound
+            paths:
+                - tests/Parity/*
+                - tests/Fixtures/Golden/GoldenCases.php

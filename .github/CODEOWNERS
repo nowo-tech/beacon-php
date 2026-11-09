@@ -1,0 +1,5 @@
+# CODEOWNERS for beacon-php
+* @HecFranco
+/.github/ @HecFranco
+/src/ @HecFranco
+/tests/ @HecFranco

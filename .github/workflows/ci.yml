@@ -1,0 +1,165 @@
+# CI: PHPUnit on PHP 8.2–8.5, Monolog 2 job, live parity with BeaconBundle, style + PHPStan (max) + Rector, coverage.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  git-hygiene:
+    name: Git history (no agent co-author)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for agent co-author trailers (REQ-GIT-001)
+        run: |
+          chmod +x .scripts/check-no-cursor-coauthor.sh .scripts/check-no-claude-coauthor.sh
+          ./.scripts/check-no-cursor-coauthor.sh HEAD
+
+  test:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: json, mbstring
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Install dependencies (lock resolved for platform PHP 8.2)
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Composer audit
+        run: composer audit --locked
+
+      - name: Run tests
+        run: composer test
+
+  monolog-2:
+    name: Monolog 2 (PHP 8.2)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install with Monolog 2
+        run: composer require --dev --no-interaction --no-progress -W 'monolog/monolog:^2.9'
+
+      - name: Version-neutral Monolog test
+        run: vendor/bin/phpunit tests/Unit/Monolog/MonologVersionNeutralTest.php
+
+  bundle-parity:
+    name: Byte parity with BeaconBundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Checkout BeaconBundle
+        uses: actions/checkout@v7
+        with:
+          repository: nowo-tech/BeaconBundle
+          path: .bundle
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Live parity + recorded goldens
+        env:
+          BEACON_BUNDLE_SRC: ${{ github.workspace }}/.bundle/src
+        run: vendor/bin/phpunit --testsuite parity,golden
+
+  quality:
+    name: Code style, PHPStan (max), Rector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Check code style
+        run: composer cs-check
+
+      - name: PHPStan
+        run: composer phpstan
+
+      - name: Rector (dry run)
+        run: composer rector-dry
+
+  coverage:
+    name: Code Coverage (100% lines)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Checkout BeaconBundle (parity tests count towards coverage)
+        uses: actions/checkout@v7
+        with:
+          repository: nowo-tech/BeaconBundle
+          path: .bundle
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: pcov
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run tests with coverage
+        env:
+          BEACON_BUNDLE_SRC: ${{ github.workspace }}/.bundle/src
+        run: composer test-coverage | tee coverage-php.txt
+
+      - name: Enforce coverage
+        env:
+          COVERAGE_MIN: '100'
+        run: sh ./.scripts/php-coverage-percent.sh coverage-php.txt

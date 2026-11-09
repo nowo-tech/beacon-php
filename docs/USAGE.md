@@ -70,6 +70,12 @@ $client->captureMessage('Report generated', 'info');
 $handlers->unregister();   // restores the previous handlers (e.g. in tests)
 ```
 
+A registered handler stays alive until `unregister()`, even if you drop the returned object (a fatal-only handler
+has no PHP handler closure keeping it).
+
+```php
+```
+
 `Client` implements `ClientInterface` (same methods as BeaconBundle's `BeaconClientInterface`),
 `CheckInCapableInterface`, `DeployCapableInterface`, `QueueSnapshotCapableInterface` and `LifecycleInterface`
 (`flush()`, `reset()`). Type-hint the interfaces; `NullClient` is the no-op implementation.
@@ -101,6 +107,12 @@ final class BeaconServiceProvider extends ServiceProvider
             'error_handler' => ['errors' => 0, 'exceptions' => false, 'fatal' => true],
         ]));
         $this->app->alias(Client::class, ClientInterface::class);
+    }
+
+    public function boot(): void
+    {
+        // Resolve eagerly: the fatal-error handler and the shutdown flush exist from the first request on.
+        $this->app->make(Client::class);
     }
 }
 ```
@@ -150,7 +162,10 @@ final class LaravelRequestProvider implements RequestContextProviderInterface
 // 'request_provider' => new LaravelRequestProvider(),
 ```
 
-Monolog channel (`config/logging.php`), using the container binding above:
+Report each exception through **one** path: either the `report()` hook above, or a `beacon` Monolog channel in the
+log stack (Laravel logs every reported exception with `context.exception`). Using both is harmless with the default
+`dedupe: true` (the same Throwable instance is sent once), but keep the channel for log records then. A Monolog
+channel (`config/logging.php`), using the container binding above, for when you do not use the `report()` hook:
 
 ```php
 'beacon' => [
@@ -197,7 +212,13 @@ $app->addErrorMiddleware(false, true, true);
 ```
 
 `resetAfterRequest: true` flushes and resets the client after every request: use it with servers that keep the
-process alive (RoadRunner, Swoole, ReactPHP, FrankenPHP worker mode).
+process alive but handle **one request at a time** per process (PHP-FPM, RoadRunner, FrankenPHP worker mode, Octane
+without concurrent tasks).
+
+Concurrent runtimes (Swoole / OpenSwoole coroutines, ReactPHP, AMPHP) are **not supported by this setup**: one
+client has one scope and one request provider, so two requests in flight would overwrite each other's request,
+user and tags, and one request's `reset()` would wipe the other's. There, create a `Client` and a
+`Psr7RequestContextProvider` per request (or per coroutine context) and flush it at the end of that request.
 
 ## Long-running workers
 
@@ -219,7 +240,7 @@ while ($job = $consumer->next()) {
     } catch (Throwable $e) {
         $client->captureException($e, ['job' => $job->name()]);
     } finally {
-        $client->flush(2.0);                   // sends what is queued, never longer than 2 s
+        $client->flush(2.0);                   // deadline 2 s (+ at most one running request's timeout)
         $client->reset();                      // tags, user, extra, breadcrumbs, spans, trace id
     }
 }
@@ -230,6 +251,7 @@ while ($job = $consumer->next()) {
   (≤ 60 s); 401 / 403 drops the queue and pauses for an hour.
 - With `async: true` (Symfony HttpClient only) sends start immediately without waiting; `flush()` reads the results.
 - Every `Client` owns its state: one client per tenant / project is fine.
+- One job at a time per client: never share a client between coroutines or concurrent tasks.
 
 ## Monolog
 

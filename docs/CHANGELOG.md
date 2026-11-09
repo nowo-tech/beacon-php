@@ -30,3 +30,13 @@ First version: the framework-free core extracted from BeaconBundle 1.19.
 - `Monolog\BeaconHandler` for Monolog 2 and 3.
 - `Request\GlobalsRequestContextProvider`, `Request\Psr7RequestContextProvider`, `Http\BeaconMiddleware` (PSR-15).
 - Scope, breadcrumbs, spans and trace id per client, with `reset()` for long-running workers.
+- `dedupe` option (default on): the same Throwable instance is sent once per client.
+
+### Security
+
+- Redirects are never followed for Guzzle and Symfony `Psr18Client` clients (injected or discovered) either; a 3xx
+  from any other PSR-18 client is a failed, non-retryable send (audit JO-M1).
+- `symfony/polyfill-mbstring` is required, so hosts without ext-mbstring still send events (audit JO-M2).
+- PHP-warning fingerprints are redacted like the message; `timeout` / `shutdown_timeout` must be finite and bounded
+  (60 s / 300 s); `E_USER_ERROR` / `E_RECOVERABLE_ERROR` are reported at level `error`; registered error handlers
+  stay alive until `unregister()`; unflushed async responses are completed on destruction.

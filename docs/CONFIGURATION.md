@@ -16,6 +16,7 @@ Names match BeaconBundle's `nowo_beacon` configuration where both exist.
 | `send` | `array<string,bool>` | see below | Context categories |
 | `stack_context_lines` | `int ≥ 0` | `5` | Source lines around each frame |
 | `before_send` | `callable(array): ?array` | `null` | Last chance to edit or drop events and transactions (runs after scrubbing) |
+| `dedupe` | `bool` | `true` | `captureException()` sends the same Throwable instance once and returns the first event id (framework report hook + Monolog channel + middleware). BeaconBundle's adapter sets `false` |
 | `scrub` | `bool` | `true` | Payload scrubber before `before_send` ([PRIVACY.md](PRIVACY.md)). BeaconBundle's adapter sets `false` to keep its bytes |
 | `envelope_dsn` | `none` \| `public` \| `full` | `none` | DSN in the envelope header. `full` puts the **secret in the body** (BeaconBundle ≤ 1.19 behaviour); avoid it |
 | `logger` | `Psr\Log\LoggerInterface` | `null` | Transport / capture failures (records flagged `nowo_beacon_transport`) |
@@ -28,14 +29,27 @@ Names match BeaconBundle's `nowo_beacon` configuration where both exist.
 | `transport` | `TransportInterface` | auto | Use this transport as is |
 | `http_client` | PSR-18 client or Symfony `HttpClientInterface` | auto-detected | See [INSTALLATION.md](INSTALLATION.md) |
 | `request_factory`, `stream_factory` | PSR-17 factories | client or discovery | For a PSR-18 client |
-| `timeout` | `float ≥ 0.1` | `5.0` | Per-request timeout (Symfony HttpClient, auto-created Guzzle) |
+| `timeout` | finite `float`, 0.1 – 60 | `5.0` | Per-request timeout (Symfony HttpClient, Guzzle, Symfony `Psr18Client`) |
 | `verify_peer` | `bool` | `true` | TLS verification (Symfony HttpClient, auto-created Guzzle). `false` only for a local self-signed Beacon |
 | `async` | `bool` | `false` | Symfony HttpClient: start requests without waiting; `flush()` reads the results (≤ 100 in flight) |
 | `queue` | `bool` \| `{max_envelopes, max_bytes}` | `false` | Deferred delivery through a bounded in-memory FIFO (default 100 envelopes / 10 MiB) sent by `flush()` |
-| `shutdown_timeout` | `float ≥ 0` | `2.0` | Upper bound for `flush()` without argument, the shutdown flush and the uncaught-exception flush |
+| `shutdown_timeout` | finite `float`, 0 – 300 | `2.0` | Deadline of `flush()` without argument, of the shutdown flush and of the uncaught-exception flush. Not a hard bound: a request already running can take up to `timeout` more, and a capture made at shutdown (fatal, uncaught exception) is itself a normal send bounded by `timeout` |
 
-Redirects are not followed (`max_redirects: 0` / Guzzle `allow_redirects: false`): the auth header must not reach
-another host.
+Redirect policy (a 307/308 would replay `X-Beacon-Auth` and the body to the target host):
+
+| Client | Redirects | Request timeout |
+| --- | --- | --- |
+| `SymfonyHttpClientTransport` (auto or `http_client: HttpClientInterface`) | never followed (`max_redirects: 0`) | `timeout` + `max_duration` |
+| Guzzle (`GuzzleHttp\ClientInterface`, auto-created, injected or discovered) | never followed (`allow_redirects: false` on every send) | `timeout` + `connect_timeout` |
+| Symfony `Psr18Client` (injected or discovered) | never followed (wrapped with `max_redirects: 0`) | `timeout` + `max_duration` |
+| any other PSR-18 client | **its own policy** — beacon-php cannot change it | **its own** |
+
+For other PSR-18 clients a 3xx response is treated as a failed, non-retryable send (logged, never re-sent), but a
+client that follows redirects internally has already sent the header to the target: configure it without redirects
+and with a timeout.
+
+Rate limits: `Retry-After`, the backoff and the one-hour pause after 401 / 403 apply only with `queue`; synchronous
+delivery (the default) sends every capture, as BeaconBundle does.
 
 ## `send`
 

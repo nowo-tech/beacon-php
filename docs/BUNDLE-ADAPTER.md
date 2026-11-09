@@ -34,7 +34,9 @@ beacon-js uses the same ingest with a `length` item header and `sdk` blocks; Bea
 | Envelope header `dsn` | full DSN **with secret** | none | `envelope_dsn: full` |
 | Payload scrubber before `before_send` | message / URL redaction only | + key / card scrubbing of extra, contexts, tags, breadcrumbs | `scrub: false` |
 | IP stripping after `before_send` | none (`send.client` gates the request IP only) | always unless `send.client` | no-op for bundle payloads unless `before_send` adds an IP; make it opt-out if the owner wants strict zero change |
-| Redirects | client default (follows) | not followed | `SymfonyHttpClientTransport(maxRedirects: null)` |
+| Redirects | client default (follows) | not followed (Symfony transport, Guzzle, Symfony `Psr18Client`; a 3xx is a failed send) | `SymfonyHttpClientTransport(maxRedirects: null)` |
+| Same Throwable captured twice | sent twice | sent once (`dedupe`) | `dedupe: false` |
+| PHP-warning fingerprint | raw message | message redacted (`SensitiveValueRedactor::redactMessage`) | port the fix to `BeaconPhpWarningHandler` (grouping changes only for messages that contained secrets) |
 | Invalid UTF-8 in a payload | `RuntimeException` from the builder | replaced by U+FFFD | (bug fix; output identical for valid input) |
 | Control characters in DSN keys | accepted | refused | (hardening; no real DSN has them) |
 | Default environment | `prod` (builder default, the bundle always passes one) | `production` | bundle passes its value |
@@ -60,7 +62,7 @@ beacon-js uses the same ingest with a `length` item header and `sdk` blocks; Bea
    `finalizeResponse()` (internal) and `LOG_CONTEXT_FLAG` (same value as `IngestResponseHandler::LOG_CONTEXT_FLAG`).
    Messenger transport and `IngestHttpClientFactory` (retries) stay in the bundle.
 6. `Client\BeaconClient`: implements the bundle interfaces and delegates to a core `Client` built with
-   `scrub: false`, the bundle's `before_send`, an adapter transport (bundle `EnvelopeTransportInterface` → core
+   `scrub: false`, `dedupe: false`, the bundle's `before_send`, an adapter transport (bundle `EnvelopeTransportInterface` → core
    `TransportInterface`), the builder above and the bundle's state objects. Keep the bundle's null-scope semantics
    (`getTags()` returns `[]` when no scope service exists).
 7. `Monolog\BeaconMonologHandler`: keep the class (it extends `AbstractProcessingHandler`, processors keep working)

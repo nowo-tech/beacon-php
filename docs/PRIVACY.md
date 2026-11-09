@@ -11,7 +11,11 @@
 - Error messages from transports are passed through a sanitiser that replaces the secret and the auth header value;
   `Dsn::__debugInfo()` masks the secret (`var_dump`, `print_r`). `Dsn::toString()` keeps it (bundle compatibility):
   never log it.
-- DSN keys with control characters are refused (header injection). Redirects are not followed.
+- DSN keys with control characters are refused (header injection).
+- Redirects are never followed by the Symfony HttpClient transport, Guzzle (auto-created, injected or discovered)
+  and Symfony's `Psr18Client`. Any **other PSR-18 client keeps its own redirect policy**: a 3xx it returns is a failed
+  send and is never re-sent, but one it follows internally has already carried the header to the target host.
+  Configure such clients without redirects (see [CONFIGURATION.md](CONFIGURATION.md#delivery)).
 
 ## What is sent
 
@@ -56,5 +60,8 @@ Two layers, both before `before_send`:
   `extra`, tags or breadcrumbs are not detected: drop them in `before_send`.
 - Source context lines are read from the files on disk: a secret hard-coded next to the failing line is sent with
   the frame (lower `stack_context_lines` or disable `send.stacktrace` if that matters).
+- Not scrubbed client-side (Beacon's server scrubber still redacts secret-shaped values there): span
+  `description` / `data`, the transaction name, the culprit, top-level message `stacktrace` frames and source
+  context lines. Keep credentials out of span descriptions (strip query strings from URLs).
 - Luhn masking also hits the occasional 13–19 digit identifier that happens to pass the check.
 - The in-memory queue holds already-scrubbed bodies only; it is lost when the process dies.

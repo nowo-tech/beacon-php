@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+Versioned ingest paths (Beacon 1.147) with a safe fallback to the legacy routes. Audit: Appendix LO and Delta LO, clean.
+
 ### Added
 
 - Versioned ingest paths (Beacon 1.147, D-20261110-04 amendment): envelopes go to

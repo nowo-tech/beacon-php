@@ -1,6 +1,14 @@
 # Upgrading
 
-## Unreleased (versioned ingest paths)
+## Unreleased
+
+## To 0.2.0
+
+From **0.1.0**:
+
+```bash
+composer update nowo-tech/beacon-php
+```
 
 No action needed. Envelopes now go to `/api/ingest/v1/{projectId}/envelope/` (Beacon ≥ 1.147). Against an older
 Beacon the first envelope answers 404 there and is re-sent once to `/api/{projectId}/envelope/`; that answer is

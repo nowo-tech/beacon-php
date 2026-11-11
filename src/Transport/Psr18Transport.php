@@ -34,9 +34,10 @@ use Throwable;
  * Sends `Content-Type: application/x-beacon-envelope`, the `User-Agent` and `X-Beacon-Auth`; the URL carries the
  * project id only.
  *
- * Ingest path: the versioned `/api/ingest/v1/{projectId}/envelope/` first; while the target is unknown
- * (`ingest_paths: auto`, see {@see IngestPathResolver}) a 404 / 405 there re-sends the same body once to the legacy
- * `/api/{projectId}/envelope/` and only that answer is logged. No other status is re-sent.
+ * Ingest path: the versioned `/api/ingest/v1/{projectId}/envelope/` unless the target is known to serve the legacy
+ * paths only (`ingest_paths: auto`, see {@see IngestPathResolver}). A 404 / 405 there re-sends the same body once to
+ * the legacy `/api/{projectId}/envelope/` and only that answer is logged, with the URL actually used. No other status
+ * is re-sent.
  */
 final readonly class Psr18Transport implements TransportInterface
 {
@@ -74,15 +75,15 @@ final readonly class Psr18Transport implements TransportInterface
 
     public function send(string $envelopeBody): TransportResult
     {
-        $probing   = $this->ingestPaths->isProbing($this->dsn);
         $versioned = $this->ingestPaths->useVersioned($this->dsn);
         $response  = $this->post($envelopeBody, $versioned);
         if ($response instanceof TransportResult) {
             return $response;
         }
 
-        if ($versioned && $probing && $this->ingestPaths->versionedAnswered($this->dsn, $response->getStatusCode())) {
-            $response = $this->post($envelopeBody, false);
+        if ($versioned && $this->ingestPaths->versionedAnswered($this->dsn, $response->getStatusCode())) {
+            $versioned = false;
+            $response  = $this->post($envelopeBody, false);
             if ($response instanceof TransportResult) {
                 return $response;
             }
@@ -92,6 +93,7 @@ final readonly class Psr18Transport implements TransportInterface
         return $this->responses->fromStatus(
             $response->getStatusCode(),
             static fn (string $name): ?string => self::header($response, $name),
+            IngestPaths::envelopeUrl($this->dsn, $versioned),
         );
     }
 
@@ -113,8 +115,9 @@ final readonly class Psr18Transport implements TransportInterface
      */
     private function post(string $envelopeBody, bool $versioned): ResponseInterface|TransportResult
     {
+        $url = IngestPaths::envelopeUrl($this->dsn, $versioned);
         try {
-            $request = $this->requestFactory->createRequest('POST', IngestPaths::envelopeUrl($this->dsn, $versioned))
+            $request = $this->requestFactory->createRequest('POST', $url)
                 ->withHeader('Content-Type', 'application/x-beacon-envelope')
                 ->withHeader('User-Agent', $this->userAgent)
                 ->withHeader('X-Beacon-Auth', $this->dsn->getBeaconAuthHeader())
@@ -122,7 +125,7 @@ final readonly class Psr18Transport implements TransportInterface
 
             return $this->dispatch($request);
         } catch (Throwable $exception) {
-            return $this->responses->fromFailure($exception);
+            return $this->responses->fromFailure($exception, $url);
         }
     }
 

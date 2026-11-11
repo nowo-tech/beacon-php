@@ -31,11 +31,11 @@ use function microtime;
  * oldest first. {@see flush()} stops at its deadline and cancels what is still running (one response that is
  * being read can still take up to `$timeout`, the per-request limit).
  *
- * Ingest path: the versioned `/api/ingest/v1/{projectId}/envelope/` first; while the target is unknown
- * (`ingest_paths: auto`, see {@see IngestPathResolver}) a 404 / 405 there re-sends the same body once to the legacy
- * `/api/{projectId}/envelope/` and only that answer is logged. In async mode a pending request keeps its body only
- * while the target is unknown; the legacy retry then happens synchronously when its status is read. No other status
- * is re-sent.
+ * Ingest path: the versioned `/api/ingest/v1/{projectId}/envelope/` unless the target is known to serve the legacy
+ * paths only (`ingest_paths: auto`, see {@see IngestPathResolver}). A 404 / 405 there re-sends the same body once to
+ * the legacy `/api/{projectId}/envelope/` and only that answer is logged, with the URL actually used. In async mode a
+ * pending versioned request keeps a reference to its body (at most `$maxPending`); the legacy retry then happens
+ * synchronously when its status is read. No other status is re-sent.
  */
 final class SymfonyHttpClientTransport implements TransportInterface
 {
@@ -69,14 +69,14 @@ final class SymfonyHttpClientTransport implements TransportInterface
 
     public function send(string $envelopeBody): TransportResult
     {
-        $probing   = $this->ingestPaths->isProbing($this->dsn);
         $versioned = $this->ingestPaths->useVersioned($this->dsn);
         $response  = $this->start($envelopeBody, $versioned);
         if ($response instanceof TransportResult) {
             return $response;
         }
 
-        $started = [$response, $versioned, $probing ? $envelopeBody : null];
+        // The body is already referenced by the running request (no copy); keep it for a possible legacy resend.
+        $started = [$response, $versioned, $versioned && $this->ingestPaths->mayFallBack() ? $envelopeBody : null];
         if (!$this->async) {
             return $this->finalize($started);
         }
@@ -161,16 +161,17 @@ final class SymfonyHttpClientTransport implements TransportInterface
             $options['verify_host'] = false;
         }
 
+        $url = IngestPaths::envelopeUrl($this->dsn, $versioned);
         try {
-            return $this->httpClient->request('POST', IngestPaths::envelopeUrl($this->dsn, $versioned), $options);
+            return $this->httpClient->request('POST', $url, $options);
         } catch (Throwable $exception) {
-            return $this->responses->fromFailure($exception);
+            return $this->responses->fromFailure($exception, $url);
         }
     }
 
     /**
-     * Read the status of a started request; when it went to the versioned path while the target was unknown and the
-     * route is missing (404 / 405), re-send the kept body once to the legacy path. Logs exactly one outcome.
+     * Read the status of a started request; when it went to the versioned path in auto mode and the route is missing
+     * (404 / 405), re-send the kept body once to the legacy path. Logs exactly one outcome, with the URL used.
      *
      * @param array{0: ResponseInterface, 1: bool, 2: string|null} $started
      */
@@ -191,11 +192,11 @@ final class SymfonyHttpClientTransport implements TransportInterface
                     $this->ingestPaths->legacyAnswered($this->dsn, $legacyStatus);
                 }
 
-                return $this->complete($legacy);
+                return $this->complete($legacy, false);
             }
         }
 
-        return $this->complete($response);
+        return $this->complete($response, $versioned);
     }
 
     /**
@@ -210,12 +211,13 @@ final class SymfonyHttpClientTransport implements TransportInterface
         }
     }
 
-    private function complete(ResponseInterface $response): TransportResult
+    private function complete(ResponseInterface $response, bool $versioned): TransportResult
     {
+        $url = IngestPaths::envelopeUrl($this->dsn, $versioned);
         try {
             $status = $response->getStatusCode();
         } catch (Throwable $exception) {
-            return $this->responses->fromFailure($exception);
+            return $this->responses->fromFailure($exception, $url);
         }
 
         return $this->responses->fromStatus(
@@ -227,6 +229,7 @@ final class SymfonyHttpClientTransport implements TransportInterface
                     return null;
                 }
             },
+            $url,
         );
     }
 }

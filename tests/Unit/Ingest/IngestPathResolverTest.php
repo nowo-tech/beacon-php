@@ -27,16 +27,57 @@ final class IngestPathResolverTest extends TestCase
         self::assertSame(0, $resolver->count());
     }
 
-    public function testAnyOtherVersionedAnswerMeansVersioned(): void
+    public function testOnlyProofOfTheRouteMeansVersioned(): void
     {
-        foreach ([200, 202, 400, 401, 403, 413, 429, 500, 503] as $status) {
+        foreach ([200, 202, 204, 400, 401, 403, 413, 415, 422] as $status) {
             $resolver = new IngestPathResolver();
             $dsn      = $this->dsn('a.example', '1');
 
             self::assertFalse($resolver->versionedAnswered($dsn, $status), (string) $status);
             self::assertTrue($resolver->useVersioned($dsn));
-            self::assertFalse($resolver->isProbing($dsn));
+            self::assertFalse($resolver->isProbing($dsn), (string) $status);
         }
+    }
+
+    public function testTransientAnswersTeachNothing(): void
+    {
+        // LO-M1: a proxy, a load balancer or an outage in front of an older Beacon must not pin the versioned path.
+        foreach ([301, 307, 402, 408, 409, 410, 429, 500, 502, 503, 504] as $status) {
+            $resolver = new IngestPathResolver();
+            $dsn      = $this->dsn('a.example', '1');
+
+            self::assertFalse($resolver->versionedAnswered($dsn, $status), (string) $status);
+            self::assertTrue($resolver->isProbing($dsn), (string) $status);
+            self::assertSame(0, $resolver->count());
+        }
+    }
+
+    public function testAuditPocTransientThenOldBeaconIsDeliveredThroughLegacy(): void
+    {
+        // Audit LO PoC A: 503 on the first probe, then the 404 of a Beacon < 1.147.
+        $resolver = new IngestPathResolver();
+        $dsn      = $this->dsn('a.example', '1');
+
+        self::assertFalse($resolver->versionedAnswered($dsn, 503));
+        self::assertTrue($resolver->useVersioned($dsn));
+        self::assertTrue($resolver->versionedAnswered($dsn, 404), 'the next 404 still falls back');
+        $resolver->legacyAnswered($dsn, 202);
+        self::assertFalse($resolver->useVersioned($dsn));
+    }
+
+    public function testKnownVersionedTargetSelfHealsOnA404(): void
+    {
+        // Audit LO PoC: 404 after the versioned path was learned (Beacon downgrade, stale entry).
+        $resolver = new IngestPathResolver();
+        $dsn      = $this->dsn('a.example', '1');
+
+        $resolver->versionedAnswered($dsn, 202);
+        self::assertFalse($resolver->isProbing($dsn));
+
+        self::assertTrue($resolver->versionedAnswered($dsn, 404), 'resend once to the legacy path');
+        self::assertTrue($resolver->isProbing($dsn), 'the entry is forgotten');
+        $resolver->legacyAnswered($dsn, 202);
+        self::assertFalse($resolver->useVersioned($dsn));
     }
 
     public function testMissingRouteFallsBackAndLearnsLegacy(): void
@@ -45,14 +86,28 @@ final class IngestPathResolverTest extends TestCase
             $resolver = new IngestPathResolver('auto');
             $dsn      = $this->dsn('a.example', '1');
 
+            self::assertTrue($resolver->mayFallBack());
             self::assertTrue($resolver->versionedAnswered($dsn, $status));
             self::assertTrue($resolver->isProbing($dsn), 'nothing is learned before the legacy answer');
             $resolver->legacyAnswered($dsn, 202);
             self::assertFalse($resolver->useVersioned($dsn));
             self::assertFalse($resolver->isProbing($dsn));
-            // Another request started while probing also re-sends.
+            // Another request started on the versioned path also re-sends.
             self::assertTrue($resolver->versionedAnswered($dsn, 404));
         }
+    }
+
+    public function testLegacyAnswers(): void
+    {
+        $resolver = new IngestPathResolver();
+        $dsn      = $this->dsn('a.example', '1');
+
+        $resolver->versionedAnswered($dsn, 404);
+        $resolver->legacyAnswered($dsn, 503);
+        self::assertTrue($resolver->isProbing($dsn), 'a transient legacy answer teaches nothing');
+
+        $resolver->legacyAnswered($dsn, 401);
+        self::assertFalse($resolver->useVersioned($dsn), 'a Beacon 401 proves the legacy route');
     }
 
     public function testBothPathsMissingKeepsTheVersionedPath(): void
@@ -65,10 +120,9 @@ final class IngestPathResolverTest extends TestCase
 
         self::assertTrue($resolver->useVersioned($dsn));
         self::assertFalse($resolver->isProbing($dsn));
-        self::assertFalse($resolver->versionedAnswered($dsn, 404), 'a known-versioned target never falls back');
     }
 
-    public function testFirstAnswerWins(): void
+    public function testNewestAnswerWins(): void
     {
         $resolver = new IngestPathResolver();
         $dsn      = $this->dsn('a.example', '1');
@@ -76,7 +130,7 @@ final class IngestPathResolverTest extends TestCase
         $resolver->versionedAnswered($dsn, 200);
         $resolver->legacyAnswered($dsn, 200);
 
-        self::assertTrue($resolver->useVersioned($dsn));
+        self::assertFalse($resolver->useVersioned($dsn));
         self::assertSame(1, $resolver->count());
     }
 
@@ -106,6 +160,7 @@ final class IngestPathResolverTest extends TestCase
         $dsn = $this->dsn('a.example', '1');
 
         $versioned = new IngestPathResolver(IngestPathMode::Versioned);
+        self::assertFalse($versioned->mayFallBack());
         self::assertTrue($versioned->useVersioned($dsn));
         self::assertFalse($versioned->isProbing($dsn));
         self::assertFalse($versioned->versionedAnswered($dsn, 404));
@@ -136,6 +191,13 @@ final class IngestPathResolverTest extends TestCase
         self::assertSame(IngestPathResolver::MAX_ENTRIES, $resolver->count());
         self::assertTrue($resolver->isProbing($this->dsn('b0.example', '1')), 'the oldest entry is dropped');
         self::assertFalse($resolver->useVersioned($this->dsn('b1.example', '1')));
+
+        // A newer answer refreshes an entry, so b1 now outlives b2.
+        $resolver->versionedAnswered($this->dsn('b1.example', '1'), 200);
+        $resolver->versionedAnswered($this->dsn('new.example', '1'), 200);
+        self::assertTrue($resolver->useVersioned($this->dsn('b1.example', '1')));
+        self::assertFalse($resolver->isProbing($this->dsn('b1.example', '1')));
+        self::assertTrue($resolver->isProbing($this->dsn('b2.example', '1')));
         self::assertFalse($resolver->useVersioned($this->dsn('b' . IngestPathResolver::MAX_ENTRIES . '.example', '1')));
 
         $resolver->reset();

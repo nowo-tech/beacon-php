@@ -62,15 +62,31 @@ Beacon 1.147 serves the canonical versioned paths; the unversioned ones stay as 
 
 beacon-php sends envelopes only; `Nowo\Beacon\Ingest\IngestPaths` builds every URL for integrations.
 
-- `auto` (default): the versioned path first. HTTP 404 or 405 there means an older Beacon: the same envelope is sent
-  once more to the legacy path and only that answer is logged. The answer is remembered per target (DSN origin +
-  project id): versioned when the versioned path answered anything else (2xx, 400, 401, 403, 413, 429, 5xx), legacy
-  when the legacy path answered something other than 404 / 405, versioned when both answered 404 (unknown project,
-  probed once). A network failure is neither retried nor remembered. 400 / 401 / 403 / 413 / 429 / 5xx are never
-  re-sent by this logic (`queue` keeps its own retries).
+- `auto` (default): the versioned path unless the target is known to serve the alias only. HTTP 404 or 405 there means
+  an older Beacon: the same envelope is sent once more to the legacy path and only that answer is logged. A 404 / 405
+  means nothing was processed, so this never duplicates an envelope. The answer is remembered per target (DSN origin +
+  project id), and the newest answer replaces the older one:
+
+  | Answer | Learned | Re-sent to the legacy path |
+  | --- | --- | --- |
+  | versioned 2xx, or a Beacon 400 / 401 / 403 / 413 / 415 / 422 | versioned | no |
+  | versioned 404 / 405 | (forgotten if it was versioned: self-heal) | once |
+  | versioned 408 / 429 / 5xx / any other status, or a network failure | nothing (the next envelope probes again) | no |
+  | legacy 2xx, or a Beacon 400 / 401 / 403 / 413 / 415 / 422 | legacy | — |
+  | legacy 404 / 405 too (unknown project) | versioned | — |
+  | legacy 408 / 429 / 5xx / other, or a network failure | nothing | — |
+
+  A transient 503 from a proxy or a load balancer in front of an older Beacon therefore never pins the versioned path,
+  and a target known as versioned that starts answering 404 (Beacon downgrade) heals itself on the next envelope. 429
+  and 5xx keep their usual handling (`queue` retries them).
 - `versioned`: always the versioned path, never a fallback. `legacy`: always the alias, no probe.
-- With `async`, a pending request keeps its body only while its target is unknown; the legacy retry runs
-  synchronously when `flush()` reads the status.
+- With `async`, a pending versioned request keeps a reference to its body (no copy; at most 100 pending requests); the
+  legacy retry runs synchronously when `flush()` reads the status.
+- Log records carry the URL actually used (`url` context: versioned or legacy).
+- Cost against Beacon < 1.147: one extra 404 per probe. In a long-running worker (FrankenPHP worker mode, RoadRunner,
+  a queue consumer) that is once per process and target. Under **PHP-FPM**, CGI or short CLI runs the process-wide
+  cache lasts one request or run, so every request that sends anything pays it: set `ingest_paths: legacy` until
+  Beacon is 1.147, then remove it (or set `versioned`).
 - The cache is process-wide (`IngestPathResolver::shared()`, like beacon-js' module-level cache): at most 32 targets,
   oldest dropped, values are booleans about a server (no keys, secrets, request, user or tenant data). Pass your own
   `ingest_path_resolver` to isolate a client; `reset()` forgets every target.

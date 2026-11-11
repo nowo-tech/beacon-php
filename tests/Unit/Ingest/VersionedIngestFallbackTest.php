@@ -9,6 +9,7 @@ use Nowo\Beacon\Dsn\Dsn;
 use Nowo\Beacon\Dsn\DsnParser;
 use Nowo\Beacon\Ingest\IngestPathMode;
 use Nowo\Beacon\Ingest\IngestPathResolver;
+use Nowo\Beacon\Ingest\IngestPaths;
 use Nowo\Beacon\Tests\Fixtures\ArrayLogger;
 use Nowo\Beacon\Transport\Psr18Transport;
 use Nowo\Beacon\Transport\SymfonyHttpClientTransport;
@@ -26,6 +27,7 @@ use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
 use function array_column;
+use function array_map;
 use function array_shift;
 
 /**
@@ -87,7 +89,7 @@ final class VersionedIngestFallbackTest extends TestCase
      */
     public static function finalStatuses(): iterable
     {
-        foreach ([400, 401, 403, 413, 429, 500, 503] as $status) {
+        foreach ([400, 401, 403, 413, 415, 422, 408, 429, 500, 502, 503, 504] as $status) {
             yield (string) $status => [$status];
         }
     }
@@ -101,30 +103,63 @@ final class VersionedIngestFallbackTest extends TestCase
         self::assertSame($status, $result->statusCode);
         self::assertSame([self::VERSIONED], $this->urls());
         self::assertCount(1, $logger->records);
+        self::assertSame(self::VERSIONED, $logger->records[0]['context']['url'], 'the log shows the URL actually used');
         self::assertTrue(IngestPathResolver::shared()->useVersioned($this->dsn()));
-        self::assertFalse(IngestPathResolver::shared()->isProbing($this->dsn()));
+        // Only a Beacon answer proves the route; 408 / 429 / 5xx teach nothing (audit LO-M1).
+        self::assertSame(!IngestPaths::provesRoute($status), IngestPathResolver::shared()->isProbing($this->dsn()));
     }
 
-    public function testKnownVersionedTargetNeverFallsBack(): void
+    public function testAuditPocTransientFirstAnswerThenOldBeacon(): void
     {
-        IngestPathResolver::shared()->versionedAnswered($this->dsn(), 200);
+        // Audit LO PoC A: a 503 on the first probe must not pin the versioned path against Beacon < 1.147.
+        $logger    = new ArrayLogger();
+        $transport = $this->symfony([503, 404, 202, 202], $logger);
 
-        $result = $this->symfony([404])->send('x');
+        self::assertSame(503, $transport->send('a')->statusCode);
+        self::assertTrue($transport->send('b')->isAccepted(), 'delivered through the legacy path');
+        $transport->send('c');
 
-        self::assertSame(404, $result->statusCode);
-        self::assertSame([self::VERSIONED], $this->urls());
+        self::assertSame([self::VERSIONED, self::VERSIONED, self::LEGACY, self::LEGACY], $this->urls());
+        self::assertCount(1, $logger->records);
+    }
+
+    public function testAuditPocKnownVersionedTargetSelfHealsOnA404(): void
+    {
+        // Audit LO: 404 after the versioned path was learned (stale entry, Beacon downgrade).
+        $logger    = new ArrayLogger();
+        $transport = $this->symfony([202, 404, 202, 202], $logger);
+
+        $transport->send('a');
+        $result = $transport->send('b');
+        $transport->send('c');
+
+        self::assertTrue($result->isAccepted());
+        self::assertSame([self::VERSIONED, self::VERSIONED, self::LEGACY, self::LEGACY], $this->urls());
+        self::assertSame(['a', 'b', 'b', 'c'], array_column($this->requests, 'body'));
+        self::assertSame([], $logger->records);
+    }
+
+    public function testLegacyAnswerIsLoggedWithTheLegacyUrl(): void
+    {
+        $logger = new ArrayLogger();
+        $this->symfony([404, 401], $logger)->send('a');
+
+        self::assertCount(1, $logger->records);
+        self::assertSame(self::LEGACY, $logger->records[0]['context']['url']);
     }
 
     public function testBothPathsMissingKeepsTheVersionedPath(): void
     {
         $logger    = new ArrayLogger();
-        $transport = $this->symfony([404, 404, 404], $logger);
+        $transport = $this->symfony([404, 404, 404, 404], $logger);
 
         self::assertSame(404, $transport->send('x')->statusCode);
         self::assertCount(1, $logger->records, 'only the legacy answer is logged');
+        self::assertFalse(IngestPathResolver::shared()->isProbing($this->dsn()));
         $transport->send('y');
 
-        self::assertSame([self::VERSIONED, self::LEGACY, self::VERSIONED], $this->urls());
+        // The versioned path is kept, and its 404 self-heals into one more legacy attempt.
+        self::assertSame([self::VERSIONED, self::LEGACY, self::VERSIONED, self::LEGACY], $this->urls());
     }
 
     public function testNetworkFailureIsNeitherRetriedNorRemembered(): void
@@ -198,15 +233,15 @@ final class VersionedIngestFallbackTest extends TestCase
         self::assertSame(self::LEGACY, $this->urls()[4]);
     }
 
-    public function testAsyncLateRequestAfterVersionedIsKnownDoesNotFallBack(): void
+    public function testAsyncRequestAfterVersionedIsKnownStillSelfHeals(): void
     {
-        $transport = $this->symfony([202, 404], async: true);
+        $transport = $this->symfony([202, 404, 202], async: true);
 
         $transport->send('a');
         $transport->send('b');
         $transport->flush(5.0);
 
-        self::assertSame([self::VERSIONED, self::VERSIONED], $this->urls());
+        self::assertSame([self::VERSIONED, self::VERSIONED, self::LEGACY], $this->urls());
     }
 
     public function testAsyncBoundAndDestructorUseTheFallback(): void
@@ -254,10 +289,27 @@ final class VersionedIngestFallbackTest extends TestCase
         $transport = $this->psr18($this->psrClient([503, 202]));
 
         self::assertSame(503, $transport->send('a')->statusCode);
+        self::assertTrue(IngestPathResolver::shared()->isProbing($this->dsn()), '503 teaches nothing');
         $transport->send('b');
 
         self::assertSame([self::VERSIONED, self::VERSIONED], $this->urls());
         self::assertSame(self::VERSIONED, $transport->getEnvelopeUrl());
+    }
+
+    public function testPsr18AuditPocsAndLoggedUrls(): void
+    {
+        $logger    = new ArrayLogger();
+        $transport = $this->psr18($this->psrClient([503, 404, 202, 202, 404, 403]), $logger);
+
+        $transport->send('a'); // 503: nothing learned
+        $transport->send('b'); // 404, then legacy 202
+        IngestPathResolver::shared()->versionedAnswered($this->dsn(), 202); // e.g. Beacon upgraded, seen by another client
+        $transport->send('c'); // versioned 202
+        $transport->send('d'); // 404 on a known-versioned target: self-heal, legacy 403
+
+        self::assertSame([self::VERSIONED, self::VERSIONED, self::LEGACY, self::VERSIONED, self::VERSIONED, self::LEGACY], $this->urls());
+        self::assertSame([self::VERSIONED, self::LEGACY], array_map(static fn (array $r): mixed => $r['context']['url'], $logger->records));
+        self::assertFalse(IngestPathResolver::shared()->useVersioned($this->dsn()));
     }
 
     public function testPsr18NetworkFailures(): void
@@ -275,10 +327,10 @@ final class VersionedIngestFallbackTest extends TestCase
 
     public function testPsr18BothMissingAndForced(): void
     {
-        $transport = $this->psr18($this->psrClient([404, 404, 404]));
+        $transport = $this->psr18($this->psrClient([404, 404, 404, 404]));
         self::assertSame(404, $transport->send('a')->statusCode);
         $transport->send('b');
-        self::assertSame([self::VERSIONED, self::LEGACY, self::VERSIONED], $this->urls());
+        self::assertSame([self::VERSIONED, self::LEGACY, self::VERSIONED, self::LEGACY], $this->urls());
 
         $this->requests = [];
         $legacy         = $this->psr18($this->psrClient([404]), resolver: new IngestPathResolver('legacy'));

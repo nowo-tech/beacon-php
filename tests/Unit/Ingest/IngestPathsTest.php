@@ -58,6 +58,16 @@ final class IngestPathsTest extends TestCase
         IngestPaths::otlpUrl((new DsnParser())->parse('http://pk:sk@localhost/42'), 'profiles', true);
     }
 
+    public function testRouteProofStatuses(): void
+    {
+        foreach ([200, 201, 202, 204, 299, 400, 401, 403, 413, 415, 422] as $status) {
+            self::assertTrue(IngestPaths::provesRoute($status), (string) $status);
+        }
+        foreach ([199, 300, 307, 402, 404, 405, 408, 409, 410, 429, 500, 502, 503, 504] as $status) {
+            self::assertFalse(IngestPaths::provesRoute($status), (string) $status);
+        }
+    }
+
     public function testRouteMissingStatuses(): void
     {
         self::assertTrue(IngestPaths::isRouteMissing(404));

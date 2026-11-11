@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Nowo\Beacon\Transport;
 
 use Nowo\Beacon\Dsn\Dsn;
+use Nowo\Beacon\Ingest\IngestPathResolver;
+use Nowo\Beacon\Ingest\IngestPaths;
 use Nowo\Beacon\Version;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -28,6 +30,12 @@ use function microtime;
  * {@see flush()} reads the statuses. At most `$maxPending` responses are kept: starting one more completes the
  * oldest first. {@see flush()} stops at its deadline and cancels what is still running (one response that is
  * being read can still take up to `$timeout`, the per-request limit).
+ *
+ * Ingest path: the versioned `/api/ingest/v1/{projectId}/envelope/` first; while the target is unknown
+ * (`ingest_paths: auto`, see {@see IngestPathResolver}) a 404 / 405 there re-sends the same body once to the legacy
+ * `/api/{projectId}/envelope/` and only that answer is logged. In async mode a pending request keeps its body only
+ * while the target is unknown; the legacy retry then happens synchronously when its status is read. No other status
+ * is re-sent.
  */
 final class SymfonyHttpClientTransport implements TransportInterface
 {
@@ -37,7 +45,9 @@ final class SymfonyHttpClientTransport implements TransportInterface
 
     private readonly string $userAgent;
 
-    /** @var list<ResponseInterface> */
+    private readonly IngestPathResolver $ingestPaths;
+
+    /** @var list<array{0: ResponseInterface, 1: bool, 2: string|null}> response, versioned path, body kept for a legacy retry */
     private array $pending = [];
 
     public function __construct(
@@ -50,29 +60,34 @@ final class SymfonyHttpClientTransport implements TransportInterface
         private readonly bool $async = false,
         private readonly int $maxPending = self::DEFAULT_MAX_PENDING,
         private readonly ?int $maxRedirects = 0,
+        ?IngestPathResolver $ingestPaths = null,
     ) {
-        $this->responses = new IngestResponseHandler($dsn, $logger);
-        $this->userAgent = $userAgent ?? Version::userAgent();
+        $this->responses   = new IngestResponseHandler($dsn, $logger);
+        $this->userAgent   = $userAgent ?? Version::userAgent();
+        $this->ingestPaths = $ingestPaths ?? IngestPathResolver::shared();
     }
 
     public function send(string $envelopeBody): TransportResult
     {
-        $response = $this->start($envelopeBody, $this->timeout);
+        $probing   = $this->ingestPaths->isProbing($this->dsn);
+        $versioned = $this->ingestPaths->useVersioned($this->dsn);
+        $response  = $this->start($envelopeBody, $versioned);
         if ($response instanceof TransportResult) {
             return $response;
         }
 
+        $started = [$response, $versioned, $probing ? $envelopeBody : null];
         if (!$this->async) {
-            return $this->finalize($response);
+            return $this->finalize($started);
         }
 
         while (count($this->pending) >= max(1, $this->maxPending)) {
             $oldest = array_shift($this->pending);
-            if ($oldest instanceof ResponseInterface) {
+            if ($oldest !== null) {
                 $this->finalize($oldest);
             }
         }
-        $this->pending[] = $response;
+        $this->pending[] = $started;
 
         return TransportResult::queued();
     }
@@ -82,14 +97,14 @@ final class SymfonyHttpClientTransport implements TransportInterface
         $deadline = microtime(true) + max(0.0, $timeout);
         $complete = true;
         while ($this->pending !== []) {
-            $response = array_shift($this->pending);
+            $started = array_shift($this->pending);
             if (microtime(true) >= $deadline) {
-                $response->cancel();
+                $started[0]->cancel();
                 $complete = false;
 
                 continue;
             }
-            $this->finalize($response);
+            $this->finalize($started);
         }
 
         return $complete;
@@ -103,8 +118,8 @@ final class SymfonyHttpClientTransport implements TransportInterface
     {
         $pending       = $this->pending;
         $this->pending = [];
-        foreach ($pending as $response) {
-            $this->finalize($response); // never throws: failures become a TransportResult
+        foreach ($pending as $started) {
+            $this->finalize($started); // never throws: failures become a TransportResult
         }
     }
 
@@ -116,7 +131,15 @@ final class SymfonyHttpClientTransport implements TransportInterface
         return count($this->pending);
     }
 
-    private function start(string $envelopeBody, float $timeout): ResponseInterface|TransportResult
+    /**
+     * Envelope URL the next send starts with (versioned or legacy, see {@see IngestPathResolver}).
+     */
+    public function getEnvelopeUrl(): string
+    {
+        return IngestPaths::envelopeUrl($this->dsn, $this->ingestPaths->useVersioned($this->dsn));
+    }
+
+    private function start(string $envelopeBody, bool $versioned): ResponseInterface|TransportResult
     {
         $options = [
             'headers' => [
@@ -125,8 +148,8 @@ final class SymfonyHttpClientTransport implements TransportInterface
                 'X-Beacon-Auth' => $this->dsn->getBeaconAuthHeader(),
             ],
             'body'         => $envelopeBody,
-            'timeout'      => $timeout,
-            'max_duration' => $timeout,
+            'timeout'      => $this->timeout,
+            'max_duration' => $this->timeout,
         ];
 
         if ($this->maxRedirects !== null) {
@@ -139,13 +162,55 @@ final class SymfonyHttpClientTransport implements TransportInterface
         }
 
         try {
-            return $this->httpClient->request('POST', $this->dsn->getEnvelopeUrl(), $options);
+            return $this->httpClient->request('POST', IngestPaths::envelopeUrl($this->dsn, $versioned), $options);
         } catch (Throwable $exception) {
             return $this->responses->fromFailure($exception);
         }
     }
 
-    private function finalize(ResponseInterface $response): TransportResult
+    /**
+     * Read the status of a started request; when it went to the versioned path while the target was unknown and the
+     * route is missing (404 / 405), re-send the kept body once to the legacy path. Logs exactly one outcome.
+     *
+     * @param array{0: ResponseInterface, 1: bool, 2: string|null} $started
+     */
+    private function finalize(array $started): TransportResult
+    {
+        [$response, $versioned, $bodyForFallback] = $started;
+        if ($versioned && $bodyForFallback !== null) {
+            $status = $this->statusOf($response);
+            if ($status !== null && $this->ingestPaths->versionedAnswered($this->dsn, $status)) {
+                $response->cancel();
+                $legacy = $this->start($bodyForFallback, false);
+                if ($legacy instanceof TransportResult) {
+                    return $legacy;
+                }
+
+                $legacyStatus = $this->statusOf($legacy);
+                if ($legacyStatus !== null) {
+                    $this->ingestPaths->legacyAnswered($this->dsn, $legacyStatus);
+                }
+
+                return $this->complete($legacy);
+            }
+        }
+
+        return $this->complete($response);
+    }
+
+    /**
+     * HTTP status without logging, or null on a transport failure (no HTTP answer).
+     */
+    private function statusOf(ResponseInterface $response): ?int
+    {
+        try {
+            return $response->getStatusCode();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function complete(ResponseInterface $response): TransportResult
     {
         try {
             $status = $response->getStatusCode();

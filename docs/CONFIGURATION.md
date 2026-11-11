@@ -32,6 +32,8 @@ Names match BeaconBundle's `nowo_beacon` configuration where both exist.
 | `timeout` | finite `float`, 0.1 – 60 | `5.0` | Per-request timeout (Symfony HttpClient, Guzzle, Symfony `Psr18Client`) |
 | `verify_peer` | `bool` | `true` | TLS verification (Symfony HttpClient, auto-created Guzzle). `false` only for a local self-signed Beacon |
 | `async` | `bool` | `false` | Symfony HttpClient: start requests without waiting; `flush()` reads the results (≤ 100 in flight) |
+| `ingest_paths` | `auto` \| `versioned` \| `legacy` (or `Ingest\IngestPathMode`) | `auto` | Ingest paths, see [Ingest paths](#ingest-paths) |
+| `ingest_path_resolver` | `Ingest\IngestPathResolver` | shared (`auto`) | Share or isolate the path cache; its mode must match `ingest_paths` |
 | `queue` | `bool` \| `{max_envelopes, max_bytes}` | `false` | Deferred delivery through a bounded in-memory FIFO (default 100 envelopes / 10 MiB) sent by `flush()` |
 | `shutdown_timeout` | finite `float`, 0 – 300 | `2.0` | Deadline of `flush()` without argument, of the shutdown flush and of the uncaught-exception flush. Not a hard bound: a request already running can take up to `timeout` more, and a capture made at shutdown (fatal, uncaught exception) is itself a normal send bounded by `timeout` |
 
@@ -47,6 +49,31 @@ Redirect policy (a 307/308 would replay `X-Beacon-Auth` and the body to the targ
 For other PSR-18 clients a 3xx response is treated as a failed, non-retryable send (logged, never re-sent), but a
 client that follows redirects internally has already sent the header to the target: configure it without redirects
 and with a timeout.
+
+### Ingest paths
+
+Beacon 1.147 serves the canonical versioned paths; the unversioned ones stay as permanent aliases:
+
+| Endpoint | Versioned (Beacon ≥ 1.147) | Legacy (every Beacon) |
+| --- | --- | --- |
+| Envelope | `/api/ingest/v1/{projectId}/envelope/` | `/api/{projectId}/envelope/` |
+| OTLP/HTTP | `/api/ingest/v1/{projectId}/otlp/v1/{traces\|logs\|metrics}` | `/api/{projectId}/otlp/v1/{signal}` |
+| Remote Messenger commands | `/api/ingest/v1/{projectId}/messenger/commands/claim`, `…/{id}/result` | `/api/{projectId}/messenger/commands/…` |
+
+beacon-php sends envelopes only; `Nowo\Beacon\Ingest\IngestPaths` builds every URL for integrations.
+
+- `auto` (default): the versioned path first. HTTP 404 or 405 there means an older Beacon: the same envelope is sent
+  once more to the legacy path and only that answer is logged. The answer is remembered per target (DSN origin +
+  project id): versioned when the versioned path answered anything else (2xx, 400, 401, 403, 413, 429, 5xx), legacy
+  when the legacy path answered something other than 404 / 405, versioned when both answered 404 (unknown project,
+  probed once). A network failure is neither retried nor remembered. 400 / 401 / 403 / 413 / 429 / 5xx are never
+  re-sent by this logic (`queue` keeps its own retries).
+- `versioned`: always the versioned path, never a fallback. `legacy`: always the alias, no probe.
+- With `async`, a pending request keeps its body only while its target is unknown; the legacy retry runs
+  synchronously when `flush()` reads the status.
+- The cache is process-wide (`IngestPathResolver::shared()`, like beacon-js' module-level cache): at most 32 targets,
+  oldest dropped, values are booleans about a server (no keys, secrets, request, user or tenant data). Pass your own
+  `ingest_path_resolver` to isolate a client; `reset()` forgets every target.
 
 Rate limits: `Retry-After`, the backoff and the one-hour pause after 401 / 403 apply only with `queue`; synchronous
 delivery (the default) sends every capture, as BeaconBundle does.

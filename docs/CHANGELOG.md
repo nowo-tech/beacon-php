@@ -5,6 +5,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Versioned ingest paths (Beacon 1.147, D-20261110-04 amendment): envelopes go to
+  `/api/ingest/v1/{projectId}/envelope/` first. New option `ingest_paths`: `auto` (default) | `versioned` | `legacy`
+  (same values as beacon-js `ingestPaths` and BeaconBundle `nowo_beacon.ingest_paths`).
+- `auto`: on HTTP 404 / 405 from the versioned path the same envelope is sent **once** to the legacy
+  `/api/{projectId}/envelope/` (a permanent alias on every Beacon) and the triggering 404 / 405 is not logged. The
+  answer is remembered per Beacon target (origin + project id) by `Ingest\IngestPathResolver`; any other answer
+  (2xx, 400, 401, 403, 413, 429, 5xx) is final and never re-sent; 404 on both paths keeps the versioned path; network
+  failures are neither retried nor remembered. `SymfonyHttpClientTransport` (sync and `async`) and `Psr18Transport`.
+- `Ingest\IngestPaths`: versioned and legacy URLs for the envelope, OTLP/HTTP (`otlpUrl()`, `otlpEndpoint()`) and
+  remote Messenger commands (`messengerClaimUrl()`, `messengerResultUrl()`).
+- `ingest_path_resolver` option and `getEnvelopeUrl()` on both HTTP transports (URL the next send starts with).
+
+### Changed
+
+- The default `auto` resolver is process-wide (`IngestPathResolver::shared()`), bounded to 32 targets (oldest dropped)
+  and holds only a server capability, so it is safe in FrankenPHP worker mode without kernel reset and in other
+  long-running workers. `Dsn::getEnvelopeUrl()` and the `url` log context keep the legacy URL (BeaconBundle
+  compatibility).
+
 ## [0.1.0] - 2026-11-09
 
 First version: the framework-free core extracted from BeaconBundle 1.19.

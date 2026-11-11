@@ -2,7 +2,9 @@
 
 ## Wire format (shared with BeaconBundle 1.19)
 
-- `POST {scheme}://{host}[:{port}]/api/{project_id}/envelope/`
+- `POST {scheme}://{host}[:{port}]/api/ingest/v1/{project_id}/envelope/` (Beacon ≥ 1.147), legacy alias
+  `POST {scheme}://{host}[:{port}]/api/{project_id}/envelope/` after a 404 / 405 (`ingest_paths`, same values and
+  rules as BeaconBundle 1.23 `nowo_beacon.ingest_paths`)
 - Headers: `Content-Type: application/x-beacon-envelope`, `User-Agent: beacon-php/0.1.0`,
   `X-Beacon-Auth: Beacon beacon_key={public}, beacon_secret={secret}`.
 - Body: three NDJSON lines and a trailing newline, encoded with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`:

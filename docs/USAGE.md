@@ -248,7 +248,10 @@ while ($job = $consumer->next()) {
 - With `queue`, a 429 / 5xx / network error keeps the envelope (3 attempts) and pauses sending for `Retry-After`
   (≤ 60 s); 401 / 403 drops the queue and pauses for an hour.
 - With `async: true` (Symfony HttpClient only) sends start immediately without waiting; `flush()` reads the results.
-- Every `Client` owns its state: one client per tenant / project is fine.
+- Every `Client` owns its state: one client per tenant / project is fine. The one process-wide cache is the ingest
+  path cache ([CONFIGURATION.md](CONFIGURATION.md#ingest-paths)): bounded to 32 targets, keyed by origin + project id,
+  holding only whether that Beacon serves the versioned paths. It is correct across requests in FrankenPHP worker
+  mode without kernel reset; nothing about a request, user or tenant is kept.
 - One job at a time per client: never share a client between coroutines or concurrent tasks.
 
 ## Monolog

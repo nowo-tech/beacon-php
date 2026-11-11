@@ -29,7 +29,7 @@ final class SymfonyHttpClientTransportTest extends TestCase
 
         self::assertTrue($transport->send('body')->isAccepted());
         self::assertSame('POST', $seen['method']);
-        self::assertSame('https://b.example/api/1/envelope/', $seen['url']);
+        self::assertSame('https://b.example/api/ingest/v1/1/envelope/', $seen['url']);
         $headers = implode("\n", $seen['options']['headers']);
         self::assertStringContainsString('X-Beacon-Auth: Beacon beacon_key=pk, beacon_secret=sk', $headers);
         self::assertStringContainsString('Content-Type: application/x-beacon-envelope', $headers);

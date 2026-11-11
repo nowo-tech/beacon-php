@@ -47,8 +47,9 @@ final readonly class IngestResponseHandler
 
     /**
      * @param Closure(string): ?string $header first value of a response header (lower-case name)
+     * @param string|null $url URL the request went to (versioned or legacy ingest path); default the legacy envelope URL
      */
-    public function fromStatus(int $status, Closure $header): TransportResult
+    public function fromStatus(int $status, Closure $header, ?string $url = null): TransportResult
     {
         if ($status >= 200 && $status < 300) {
             return new TransportResult(true, $status);
@@ -56,7 +57,7 @@ final readonly class IngestResponseHandler
 
         $context = [
             'status'               => $status,
-            'url'                  => $this->dsn->getEnvelopeUrl(),
+            'url'                  => $url ?? $this->dsn->getEnvelopeUrl(),
             self::LOG_CONTEXT_FLAG => true,
         ];
 
@@ -99,13 +100,15 @@ final readonly class IngestResponseHandler
 
     /**
      * Transport-level failure (DNS, refused connection, TLS, timeout).
+     *
+     * @param string|null $url URL the request went to (versioned or legacy ingest path); default the legacy envelope URL
      */
-    public function fromFailure(Throwable $exception): TransportResult
+    public function fromFailure(Throwable $exception, ?string $url = null): TransportResult
     {
         $message = $this->sanitize($exception->getMessage());
         $this->logger->error('Beacon ingest transport failed.', [
             'exception'            => $message,
-            'url'                  => $this->dsn->getEnvelopeUrl(),
+            'url'                  => $url ?? $this->dsn->getEnvelopeUrl(),
             self::LOG_CONTEXT_FLAG => true,
         ]);
 

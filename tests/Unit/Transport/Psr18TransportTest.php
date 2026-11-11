@@ -39,7 +39,7 @@ final class Psr18TransportTest extends TestCase
         self::assertTrue($transport->flush(1.0));
         $request = $client->requests[0];
         self::assertSame('POST', $request->getMethod());
-        self::assertSame('https://b.example:9447/api/1/envelope/', (string) $request->getUri());
+        self::assertSame('https://b.example:9447/api/ingest/v1/1/envelope/', (string) $request->getUri());
         self::assertSame('application/x-beacon-envelope', $request->getHeaderLine('Content-Type'));
         self::assertSame(Version::userAgent(), $request->getHeaderLine('User-Agent'));
         self::assertSame('Beacon beacon_key=pk, beacon_secret=sk', $request->getHeaderLine('X-Beacon-Auth'));

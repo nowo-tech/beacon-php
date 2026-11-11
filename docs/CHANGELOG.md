@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Versioned ingest paths (Beacon 1.147, D-20261110-04 amendment): envelopes go to
+  `/api/ingest/v1/{projectId}/envelope/` first. New option `ingest_paths`: `auto` (default) | `versioned` | `legacy`
+  (same values as beacon-js `ingestPaths` and BeaconBundle `nowo_beacon.ingest_paths`).
+- `auto`: on HTTP 404 / 405 from the versioned path the same envelope is sent **once** to the legacy
+  `/api/{projectId}/envelope/` (a permanent alias on every Beacon) and the triggering 404 / 405 is not logged. The
+  answer is remembered per Beacon target (origin + project id) by `Ingest\IngestPathResolver`, newest answer wins.
+  Only a 2xx or a Beacon 400 / 401 / 403 / 413 / 415 / 422 proves a route; 408, 429, 5xx, other statuses and network
+  failures teach nothing and are never re-sent by this logic (audit LO-M1). A target known as versioned that answers
+  404 / 405 is forgotten and the envelope re-sent once to the legacy path (self-heal). 404 on both paths keeps the
+  versioned path. `SymfonyHttpClientTransport` (sync and `async`) and `Psr18Transport`.
+- `Ingest\IngestPaths::provesRoute()` and `ROUTE_PROOF_STATUSES`; `IngestPathResolver::mayFallBack()`.
+- `Ingest\IngestPaths`: versioned and legacy URLs for the envelope, OTLP/HTTP (`otlpUrl()`, `otlpEndpoint()`) and
+  remote Messenger commands (`messengerClaimUrl()`, `messengerResultUrl()`).
+- `ingest_path_resolver` option and `getEnvelopeUrl()` on both HTTP transports (URL the next send starts with).
+
+### Changed
+
+- The default `auto` resolver is process-wide (`IngestPathResolver::shared()`), bounded to 32 targets (oldest dropped)
+  and holds only a server capability, so it is safe in FrankenPHP worker mode without kernel reset and in other
+  long-running workers. Under PHP-FPM it lasts one request: against Beacon < 1.147 use `ingest_paths: legacy`.
+- Log records of the bundled transports carry the URL actually used in `url` (versioned or legacy; audit LO-I2).
+  `Dsn::getEnvelopeUrl()` keeps returning the legacy URL (BeaconBundle compatibility).
+
 ## [0.1.0] - 2026-11-09
 
 First version: the framework-free core extracted from BeaconBundle 1.19.

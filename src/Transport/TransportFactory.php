@@ -88,6 +88,7 @@ final readonly class TransportFactory
                 $dsn,
                 $options->logger,
                 timeout: $options->timeout,
+                ingestPaths: $options->ingestPathResolver,
             );
         }
 
@@ -111,6 +112,7 @@ final readonly class TransportFactory
                 $dsn,
                 $options->logger,
                 timeout: $options->timeout,
+                ingestPaths: $options->ingestPathResolver,
             );
         }
 
@@ -128,6 +130,7 @@ final readonly class TransportFactory
                 $dsn,
                 $options->logger,
                 timeout: $options->timeout,
+                ingestPaths: $options->ingestPathResolver,
             );
         }
 
@@ -143,6 +146,7 @@ final readonly class TransportFactory
             $options->timeout,
             $options->logger,
             async: $options->async,
+            ingestPaths: $options->ingestPathResolver,
         );
     }
 

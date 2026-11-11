@@ -21,6 +21,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 use function in_array;
 
@@ -55,6 +56,25 @@ final class TransportFactoryTest extends TestCase
         self::assertInstanceOf(Psr18Transport::class, (new TransportFactory())->create(Options::fromArray(['dsn' => self::DSN, 'http_client' => new Psr18Client(new MockHttpClient())])));
         // Factories discovered with php-http/discovery.
         self::assertInstanceOf(Psr18Transport::class, (new TransportFactory())->create(Options::fromArray(['dsn' => self::DSN, 'http_client' => new FakePsr18Client()])));
+    }
+
+    public function testIngestPathResolverReachesBothTransports(): void
+    {
+        $seen   = [];
+        $client = new MockHttpClient(static function (string $method, string $url) use (&$seen): MockResponse {
+            $seen[] = $url;
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+        (new TransportFactory())->create(Options::fromArray(['dsn' => self::DSN, 'http_client' => $client, 'ingest_paths' => 'legacy']))->send('x');
+        (new TransportFactory())->create(Options::fromArray(['dsn' => self::DSN, 'http_client' => $client]))->send('y');
+        self::assertSame(['https://b.example/api/1/envelope/', 'https://b.example/api/ingest/v1/1/envelope/'], $seen);
+
+        $psr       = new FakePsr18Client();
+        $factory   = new Psr17Factory();
+        $transport = (new TransportFactory())->create(Options::fromArray(['dsn' => self::DSN, 'http_client' => $psr, 'request_factory' => $factory, 'stream_factory' => $factory, 'ingest_paths' => 'legacy']));
+        $transport->send('z');
+        self::assertSame('https://b.example/api/1/envelope/', (string) $psr->requests[0]->getUri());
     }
 
     public function testAutoDetectionOrder(): void

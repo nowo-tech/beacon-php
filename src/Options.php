@@ -13,6 +13,8 @@ use Nowo\Beacon\Envelope\EnvelopeDsnMode;
 use Nowo\Beacon\Envelope\SendOptions;
 use Nowo\Beacon\ErrorHandler\ErrorHandler;
 use Nowo\Beacon\Exception\ConfigurationException;
+use Nowo\Beacon\Ingest\IngestPathMode;
+use Nowo\Beacon\Ingest\IngestPathResolver;
 use Nowo\Beacon\Request\RequestContextProviderInterface;
 use Nowo\Beacon\Transport\QueuedTransport;
 use Nowo\Beacon\Transport\TransportInterface;
@@ -82,6 +84,8 @@ final readonly class Options
         'culprit_resolver',
         'internal_class_prefixes',
         'internal_paths',
+        'ingest_paths',
+        'ingest_path_resolver',
     ];
 
     public const DEFAULT_ENVIRONMENT = 'production';
@@ -133,6 +137,8 @@ final readonly class Options
         public ?Closure $culpritResolver,
         public array $internalClassPrefixes,
         public array $internalPaths,
+        public IngestPathMode $ingestPaths,
+        public IngestPathResolver $ingestPathResolver,
     ) {
     }
 
@@ -187,6 +193,8 @@ final readonly class Options
             throw new ConfigurationException('The "envelope_dsn" option must be "none", "public" or "full".');
         }
 
+        [$ingestPaths, $ingestPathResolver] = self::ingestPaths($options);
+
         return new self(
             dsn: $dsn,
             enabled: self::bool($options, 'enabled', true),
@@ -217,6 +225,8 @@ final readonly class Options
             culpritResolver: self::closure($options, 'culprit_resolver'),
             internalClassPrefixes: self::stringList($options, 'internal_class_prefixes'),
             internalPaths: self::stringList($options, 'internal_paths'),
+            ingestPaths: $ingestPaths,
+            ingestPathResolver: $ingestPathResolver,
         );
     }
 
@@ -340,6 +350,35 @@ final readonly class Options
         }
 
         throw new ConfigurationException('The "http_client" option must be a PSR-18 client or a Symfony HttpClientInterface.');
+    }
+
+    /**
+     * `ingest_paths` mode and the resolver the bundled transports use: the given `ingest_path_resolver`, the
+     * process-wide shared resolver for `auto`, or a fresh one for a forced mode (nothing to remember).
+     *
+     * @param array<array-key, mixed> $options
+     *
+     * @return array{0: IngestPathMode, 1: IngestPathResolver}
+     */
+    private static function ingestPaths(array $options): array
+    {
+        $resolver = self::instance($options, 'ingest_path_resolver', IngestPathResolver::class);
+        $value    = $options['ingest_paths'] ?? null;
+        if ($value === null) {
+            $mode = $resolver?->mode() ?? IngestPathMode::Auto;
+        } else {
+            $mode = $value instanceof IngestPathMode ? $value : (is_string($value) ? IngestPathMode::tryFrom($value) : null);
+            if ($mode === null) {
+                throw new ConfigurationException('The "ingest_paths" option must be "auto", "versioned" or "legacy".');
+            }
+            if ($resolver !== null && $resolver->mode() !== $mode) {
+                throw new ConfigurationException('The "ingest_paths" option and the mode of "ingest_path_resolver" differ.');
+            }
+        }
+
+        $resolver ??= $mode === IngestPathMode::Auto ? IngestPathResolver::shared() : new IngestPathResolver($mode);
+
+        return [$mode, $resolver];
     }
 
     /**

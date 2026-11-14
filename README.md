@@ -16,7 +16,10 @@ them to Beacon's Envelope ingest.
   sensitive keys are scrubbed **before** `before_send`; the end user's IP is never sent unless you enable
   `send.client`. See [docs/PRIVACY.md](docs/PRIVACY.md).
 - **Safe**: a capture never throws into your app, re-entrant captures are ignored, flushing at shutdown is bounded by
-  `shutdown_timeout`, clients share no state, `reset()` clears request state in long-running workers.
+  `shutdown_timeout`, clients share no request state (only a bounded ingest path cache), `reset()` clears request
+  state in long-running workers.
+- **Versioned ingest paths** (`/api/ingest/v1/…`, Beacon ≥ 1.147) with a one-time fallback to the legacy alias on
+  older Beacons (`ingest_paths`).
 - **Same wire format as BeaconBundle** (byte-for-byte golden tests), so the bundle can delegate to it.
 
 > Status: **0.1.0, unreleased.** Requires PHP 8.2 – 8.5.

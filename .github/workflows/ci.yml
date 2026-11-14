@@ -75,10 +75,11 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
-      - name: Run tests (symfony/polyfill-mbstring provides mb_*)
+      # PHPUnit itself requires ext-mbstring, so this job runs a plain smoke script instead of the suite.
+      - name: Smoke check (symfony/polyfill-mbstring provides mb_*)
         run: |
           php -r 'exit(extension_loaded("mbstring") ? 1 : 0);'
-          composer test
+          php tests/Smoke/no-mbstring.php
 
   monolog-2:
     name: Monolog 2 (PHP 8.2)

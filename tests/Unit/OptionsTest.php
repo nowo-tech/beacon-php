@@ -8,6 +8,8 @@ use Nowo\Beacon\Dsn\InvalidDsnException;
 use Nowo\Beacon\Envelope\EnvelopeDsnMode;
 use Nowo\Beacon\ErrorHandler\ErrorHandler;
 use Nowo\Beacon\Exception\ConfigurationException;
+use Nowo\Beacon\Ingest\IngestPathMode;
+use Nowo\Beacon\Ingest\IngestPathResolver;
 use Nowo\Beacon\Options;
 use Nowo\Beacon\Tests\Fixtures\ArrayLogger;
 use Nowo\Beacon\Tests\Fixtures\FakePsr18Client;
@@ -51,6 +53,25 @@ final class OptionsTest extends TestCase
         self::assertFalse($options->send->client);
         self::assertSame(['errors' => ErrorHandler::DEFAULT_LEVELS, 'capture_silenced' => false, 'exceptions' => true, 'fatal' => true, 'swallow' => false], $options->errorHandler);
         self::assertSame([], $options->internalPaths);
+        self::assertSame(IngestPathMode::Auto, $options->ingestPaths);
+        self::assertSame(IngestPathResolver::shared(), $options->ingestPathResolver);
+    }
+
+    public function testIngestPathsOptions(): void
+    {
+        $versioned = Options::fromArray(['dsn' => '', 'ingest_paths' => 'versioned']);
+        self::assertSame(IngestPathMode::Versioned, $versioned->ingestPaths);
+        self::assertSame(IngestPathMode::Versioned, $versioned->ingestPathResolver->mode());
+        self::assertNotSame(IngestPathResolver::shared(), $versioned->ingestPathResolver);
+
+        self::assertSame(IngestPathMode::Legacy, Options::fromArray(['dsn' => '', 'ingest_paths' => IngestPathMode::Legacy])->ingestPathResolver->mode());
+        self::assertSame(IngestPathResolver::shared(), Options::fromArray(['dsn' => '', 'ingest_paths' => 'auto'])->ingestPathResolver);
+
+        $own     = new IngestPathResolver('legacy');
+        $options = Options::fromArray(['dsn' => '', 'ingest_path_resolver' => $own]);
+        self::assertSame($own, $options->ingestPathResolver);
+        self::assertSame(IngestPathMode::Legacy, $options->ingestPaths);
+        self::assertSame($own, Options::fromArray(['dsn' => '', 'ingest_path_resolver' => $own, 'ingest_paths' => 'legacy'])->ingestPathResolver);
     }
 
     public function testEnvironmentVariablesFillMissingKeys(): void
@@ -147,6 +168,10 @@ final class OptionsTest extends TestCase
         yield 'error handler key' => [['error_handler' => ['levels' => 1]], 'Unknown "error_handler" option "levels".'];
         yield 'framework' => [['framework' => ['name' => 'x']], 'The "framework" option must be null or'];
         yield 'prefixes type' => [['internal_paths' => 'x'], 'The "internal_paths" option must be a list of strings.'];
+        yield 'ingest paths value' => [['ingest_paths' => 'v2'], 'The "ingest_paths" option must be "auto", "versioned" or "legacy".'];
+        yield 'ingest paths type' => [['ingest_paths' => true], 'The "ingest_paths" option must be "auto", "versioned" or "legacy".'];
+        yield 'ingest path resolver' => [['ingest_path_resolver' => new stdClass()], 'The "ingest_path_resolver" option must be an instance of'];
+        yield 'ingest paths mismatch' => [['ingest_paths' => 'legacy', 'ingest_path_resolver' => new IngestPathResolver()], 'The "ingest_paths" option and the mode of "ingest_path_resolver" differ.'];
         yield 'prefixes item' => [['internal_paths' => ['']], 'The "internal_paths" option must be a list of non-empty strings.'];
     }
 

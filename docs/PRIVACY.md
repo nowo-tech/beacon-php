@@ -3,7 +3,7 @@
 ## Credentials
 
 - The DSN secret is sent **only** in the `X-Beacon-Auth: Beacon beacon_key=…, beacon_secret=…` header. The ingest URL
-  is `{origin}/api/{project}/envelope/` (no credentials). By default the envelope header carries no `dsn` at all
+  is `{origin}/api/ingest/v1/{project}/envelope/` or its alias `{origin}/api/{project}/envelope/` (no credentials). By default the envelope header carries no `dsn` at all
   (`envelope_dsn: none`, like beacon-js `beaconServerAuth()`).
 - `envelope_dsn: full` restores BeaconBundle ≤ 1.19's header (`"dsn":"https://PUBLIC:SECRET@…"`, the secret in the
   request body and in anything that stores bodies). Beacon removes it before queueing, but proxies and the in-memory

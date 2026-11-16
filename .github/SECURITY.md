@@ -4,7 +4,8 @@
 
 | Version | Supported |
 | --- | --- |
-| 0.1.x | Yes (pre-release) |
+| 0.2.x | Yes (pre-release) |
+| 0.1.x | No (upgrade to 0.2) |
 
 ## Reporting a vulnerability
 
@@ -27,4 +28,4 @@ within 5 working days and coordinate a fix and disclosure date with you.
 - Redirects are never followed by the Symfony transport, Guzzle and Symfony `Psr18Client`; other PSR-18 clients keep
   their own policy (configure them without redirects).
 
-Details and known limits: [docs/PRIVACY.md](docs/PRIVACY.md).
+Details and known limits: [docs/PRIVACY.md](../docs/PRIVACY.md) and [docs/SECURITY.md](../docs/SECURITY.md).

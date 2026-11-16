@@ -1,0 +1,6 @@
+---
+description: Templates and public assets (not applicable to this SDK)
+alwaysApply: false
+---
+
+- beacon-php ships no Twig templates, translations or public assets. UI belongs to Beacon and BeaconBundle.

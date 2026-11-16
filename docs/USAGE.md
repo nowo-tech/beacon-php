@@ -1,5 +1,7 @@
 # Usage
 
+## Table of contents
+
 - [Plain PHP](#plain-php)
 - [Instances instead of the facade](#instances-instead-of-the-facade)
 - [Laravel-style applications](#laravel-style-applications)

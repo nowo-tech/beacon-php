@@ -1,5 +1,13 @@
 # Privacy and data handling
 
+## Table of contents
+
+- [Credentials](#credentials)
+- [What is sent](#what-is-sent)
+- [What is never sent (defaults)](#what-is-never-sent-defaults)
+- [Redaction and scrubbing](#redaction-and-scrubbing)
+- [Limits](#limits)
+
 ## Credentials
 
 - The DSN secret is sent **only** in the `X-Beacon-Auth: Beacon beacon_key=…, beacon_secret=…` header. The ingest URL

@@ -1,0 +1,13 @@
+---
+description: PHP rules for the beacon-php SDK
+globs:
+  - "src/**/*.php"
+  - "tests/**/*.php"
+alwaysApply: false
+---
+
+- Target PHP `>=8.2 <8.6`. The core requires PHP + PSR packages only; Symfony HttpClient, Monolog and PSR-15 code lives in its own namespaces and stays optional (`suggest`).
+- Every PHP file starts with `declare(strict_types=1);`. Prefer final, readonly value objects.
+- Never let a capture throw into the host; bound every network wait (timeout, max_duration, shutdown_timeout).
+- Keep the wire format identical to BeaconBundle: update `tests/Golden` fixtures together with any envelope change.
+- Long-running workers: per-request state goes through `reset()`; process-wide caches must be bounded.

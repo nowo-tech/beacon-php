@@ -1,8 +1,8 @@
 # beacon-php
 
-[![CI](https://github.com/nowo-tech/beacon-php/actions/workflows/ci.yml/badge.svg)](https://github.com/nowo-tech/beacon-php/actions/workflows/ci.yml)
-[![PHP](https://img.shields.io/badge/php-8.2%20%E2%80%93%208.5-777bb4)](composer.json)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/nowo-tech/beacon-php/actions/workflows/ci.yml/badge.svg)](https://github.com/nowo-tech/beacon-php/actions/workflows/ci.yml) [![Packagist Version](https://img.shields.io/packagist/v/nowo-tech/beacon-php.svg?style=flat)](https://packagist.org/packages/nowo-tech/beacon-php) [![Packagist Downloads](https://img.shields.io/packagist/dt/nowo-tech/beacon-php.svg)](https://packagist.org/packages/nowo-tech/beacon-php) [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![PHP](https://img.shields.io/badge/PHP-8.2%2B-777BB4?logo=php)](https://php.net) [![GitHub stars](https://img.shields.io/github/stars/nowo-tech/beacon-php.svg?style=social&label=Star)](https://github.com/nowo-tech/beacon-php) [![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)](#tests-and-coverage)
+
+> ⭐ **Found this useful?** [Install from Packagist](https://packagist.org/packages/nowo-tech/beacon-php) · Give it a **star** on [GitHub](https://github.com/nowo-tech/beacon-php) so more developers can find it.
 
 Framework-free PHP client for **Beacon**, the nowo-tech error-tracking and monitoring server. It captures exceptions,
 messages, PHP errors and fatal errors, performance transactions, deploy markers and scheduler check-ins, and sends
@@ -22,7 +22,7 @@ them to Beacon's Envelope ingest.
   older Beacons (`ingest_paths`).
 - **Same wire format as BeaconBundle** (byte-for-byte golden tests), so the bundle can delegate to it.
 
-> Status: **0.1.0, unreleased.** Requires PHP 8.2 – 8.5.
+> Status: **0.2.x** (pre-1.0). Requires PHP 8.2 – 8.5.
 
 ## Installation
 
@@ -66,19 +66,6 @@ $client = new Client(Options::fromDsn($_ENV['BEACON_DSN']));
 $client->captureMessage('Imported 120 rows', 'info');
 ```
 
-## Documentation
-
-| Topic | File |
-| --- | --- |
-| Installation and HTTP clients | [docs/INSTALLATION.md](docs/INSTALLATION.md) |
-| Usage: plain PHP, Laravel, Slim, workers, Monolog, check-ins, deploys | [docs/USAGE.md](docs/USAGE.md) |
-| Every option | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
-| What is sent, what never is, scrubbing | [docs/PRIVACY.md](docs/PRIVACY.md) |
-| Wire format and BeaconBundle parity / adapter plan | [docs/BUNDLE-ADAPTER.md](docs/BUNDLE-ADAPTER.md) |
-| Changelog / upgrading | [docs/CHANGELOG.md](docs/CHANGELOG.md), [docs/UPGRADING.md](docs/UPGRADING.md) |
-| Security policy | [SECURITY.md](SECURITY.md) |
-| Contributing, development stack, release | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md), [docs/RELEASE.md](docs/RELEASE.md) |
-
 ## Development
 
 ```bash
@@ -89,6 +76,36 @@ make test-matrix     # PHPUnit on PHP 8.2, 8.3, 8.4, 8.5
 make parity BUNDLE=../BeaconBundle   # byte-for-byte comparison with a BeaconBundle checkout
 make down
 ```
+
+## Documentation
+
+- [Installation](docs/INSTALLATION.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Usage](docs/USAGE.md) (plain PHP, Laravel, Slim, workers, Monolog, check-ins, deploys)
+- [Contributing](docs/CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Changelog](docs/CHANGELOG.md)
+- [Upgrading](docs/UPGRADING.md)
+- [Release](docs/RELEASE.md)
+- [Security](docs/SECURITY.md)
+- [Engram](docs/ENGRAM.md)
+- [Spec-driven development](docs/SPEC-DRIVEN-DEVELOPMENT.md)
+- [GitHub Spec Kit](docs/SPEC-KIT.md)
+
+### Additional documentation
+
+- [Privacy: what is sent, what never is, scrubbing](docs/PRIVACY.md)
+- [Wire format and BeaconBundle parity / adapter plan](docs/BUNDLE-ADAPTER.md)
+- [PSR evaluation (REQ-CS-007)](docs/PSR.md)
+- [Security policy (reporting)](.github/SECURITY.md)
+
+## Tests and coverage
+
+- Tests: PHPUnit (unit, golden wire-format fixtures, BeaconBundle parity, smoke) on PHP 8.2–8.5, plus Monolog 2 and
+  no-mbstring cells
+- PHP: 100% (1817/1817 lines in CI, `make test-coverage`)
+- TS/JS: N/A
+- Python: N/A
 
 ## License
 

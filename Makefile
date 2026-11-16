@@ -100,10 +100,13 @@ update: ensure-up
 validate: ensure-up
 	$(COMPOSE) exec -T php $(COMPOSER_BIN) validate --strict
 
+# REQ-MAKE-002 order (library: no Twig, no demo; Igor and the FrankenPHP PHPStan rulesets are pending, see docs/SPEC-DRIVEN-DEVELOPMENT.md).
 release-check:
 	@$(MAKE) ensure-up
 	@$(MAKE) check-no-cursor-coauthor
-	@$(MAKE) validate
+	@$(MAKE) check-open-prs
+	@$(MAKE) composer-sync
+	@$(MAKE) cs-fix
 	@$(MAKE) cs-check
 	@$(MAKE) rector-dry
 	@$(MAKE) phpstan
@@ -116,6 +119,13 @@ clean:
 check-no-cursor-coauthor:
 	@chmod +x .scripts/check-no-cursor-coauthor.sh .scripts/check-no-claude-coauthor.sh
 	@./.scripts/check-no-cursor-coauthor.sh HEAD
+
+check-open-prs:
+	@bash .scripts/check-open-prs.sh
+
+strip-cursor-coauthor-from-history:
+	@chmod +x .scripts/strip-cursor-coauthor-from-history.sh
+	@./.scripts/strip-cursor-coauthor-from-history.sh main
 
 setup-hooks:
 	@chmod +x .githooks/commit-msg 2>/dev/null || true

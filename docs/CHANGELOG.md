@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- Org scaffold (REQ compliance sweep 2026-11-16): `CODE_OF_CONDUCT.md`, docs (SECURITY with threat model and release checklist, ENGRAM, SPEC-DRIVEN-DEVELOPMENT, SPEC-KIT, PSR, tables of contents), the security policy moved to `.github/SECURITY.md`, Spec Kit baseline `specs/001-baseline` (49/49 files), README badges / Found this useful / canonical Documentation / Tests and coverage, `.cursor` rules + MCP, issue and PR templates, Copilot instructions, PR lint, stale and sync-releases workflows; `release-check` gains `check-open-prs`, `composer-sync` and `cs-fix`. No change to `src/`.
+
 ## [0.2.0] - 2026-11-11
 
 Versioned ingest paths (Beacon 1.147) with a safe fallback to the legacy routes. Audit: Appendix LO and Delta LO, clean.

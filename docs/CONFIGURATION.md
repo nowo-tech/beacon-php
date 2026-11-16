@@ -4,6 +4,15 @@
 `ConfigurationException`; an invalid DSN throws `InvalidDsnException`. Messages never contain the DSN or the secret.
 Names match BeaconBundle's `nowo_beacon` configuration where both exist.
 
+## Table of contents
+
+- [Core](#core)
+- [Delivery](#delivery)
+  - [Ingest paths](#ingest-paths)
+- [send](#send)
+- [Error handlers](#error-handlers)
+- [Integration hooks](#integration-hooks)
+
 ## Core
 
 | Key | Type | Default | Meaning |

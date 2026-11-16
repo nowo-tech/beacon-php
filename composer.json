@@ -86,7 +86,12 @@
             "/coverage",
             "/coverage.xml",
             "/Dockerfile",
-            "/docker-compose.yml"
+            "/docker-compose.yml",
+            "/.cursor",
+            "/.specify",
+            "/specs",
+            "/.cursorignore",
+            "/CODE_OF_CONDUCT.md"
         ]
     },
     "config": {

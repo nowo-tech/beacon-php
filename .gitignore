@@ -14,3 +14,14 @@
 .phpstan.result.cache
 var/
 /.bundle
+
+# Archives / compressed (REQ-GITIGNORE-001)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Cursor local sandbox (machine-specific; REQ-IDE-005)
+.cursor/sandbox.json

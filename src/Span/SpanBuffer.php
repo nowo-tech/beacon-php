@@ -27,7 +27,7 @@ use function random_bytes;
  *     data?: array<string, mixed>
  * }
  */
-class SpanBuffer
+final class SpanBuffer
 {
     public const MAX_ITEMS = 100;
 

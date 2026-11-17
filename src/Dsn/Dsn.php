@@ -21,20 +21,20 @@ use function is_int;
  *
  * Not final so that framework adapters (BeaconBundle's `BeaconDsn`) can extend it and keep their own type name.
  */
-class Dsn
+final readonly class Dsn
 {
-    private readonly string $projectId;
+    private string $projectId;
 
     /**
      * @param int|string $projectId Positive numeric legacy id or canonical project UUID
      */
     public function __construct(
-        private readonly string $scheme,
-        private readonly string $publicKey,
+        private string $scheme,
+        private string $publicKey,
         #[SensitiveParameter]
-        private readonly string $secretKey,
-        private readonly string $host,
-        private readonly ?int $port,
+        private string $secretKey,
+        private string $host,
+        private ?int $port,
         string|int $projectId,
     ) {
         $this->projectId = is_int($projectId) ? (string) $projectId : $projectId;

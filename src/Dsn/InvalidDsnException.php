@@ -12,6 +12,6 @@ use Nowo\Beacon\Exception\BeaconExceptionInterface;
  *
  * Not final so that BeaconBundle's `InvalidBeaconDsnException` can extend it.
  */
-class InvalidDsnException extends InvalidArgumentException implements BeaconExceptionInterface
+final class InvalidDsnException extends InvalidArgumentException implements BeaconExceptionInterface
 {
 }

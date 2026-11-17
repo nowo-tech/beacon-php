@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### BREAKING (0.3.0)
+
+- REQ-PHP-001: `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and `Dsn\InvalidDsnException` are now `final`. Every other public class was already `final` or is an interface. Code that extends one of them must switch to composition (see UPGRADING). BeaconBundle's `BeaconDsn extends Dsn` and `InvalidBeaconDsnException extends InvalidDsnException` must be migrated before it can require `^0.3`.
+
 ### Changed (tooling)
 
 - `nowo-tech/phpstan-frankenphp` (classic + worker rulesets, REQ-CS-005) and `igor-php/igor-php` (REQ-CS-008, `composer igor`, `make igor`, CI step, `release-check`) are require-dev; the intentional process-wide state of the facade, the error handlers and the ingest-path cache is a justified PHPStan ignore list and Igor baseline.

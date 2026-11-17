@@ -151,7 +151,7 @@ final class PayloadScrubberTest extends TestCase
     /**
      * @return list<string>
      */
-    private static function luhnTraceIds(): array
+    private function luhnTraceIds(): array
     {
         return [
             '35289736781368f7639f97b1a282bbd3',
@@ -166,7 +166,7 @@ final class PayloadScrubberTest extends TestCase
 
     public function testLuhnValidRunsInTraceIdsStayUntouched(): void
     {
-        foreach (self::luhnTraceIds() as $traceId) {
+        foreach ($this->luhnTraceIds() as $traceId) {
             $payload = (new PayloadScrubber())->scrub([
                 'extra'    => ['trace_id' => $traceId, 'span_id' => $traceId, 'parent_span_id' => $traceId, 'TRACE_ID' => $traceId],
                 'tags'     => ['trace_id' => $traceId],
@@ -181,7 +181,7 @@ final class PayloadScrubberTest extends TestCase
 
     public function testMaskCardsAloneLeavesHexTraceIdsUntouched(): void
     {
-        foreach (self::luhnTraceIds() as $traceId) {
+        foreach ($this->luhnTraceIds() as $traceId) {
             if (ctype_xdigit($traceId) && !ctype_digit($traceId)) {
                 self::assertSame($traceId, PayloadScrubber::maskCards($traceId));
             }

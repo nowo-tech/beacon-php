@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace Nowo\Beacon\Tests\Unit\Scrubber;
 
 use Nowo\Beacon\Scrubber\PayloadScrubber;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use stdClass;
 
+use function bin2hex;
+use function ctype_digit;
+use function ctype_xdigit;
+use function mt_srand;
+use function random_bytes;
 use function str_repeat;
 
 final class PayloadScrubberTest extends TestCase
@@ -96,5 +102,112 @@ final class PayloadScrubberTest extends TestCase
         self::assertTrue(PayloadScrubber::isSensitiveKey('X-Session'));
         self::assertFalse(PayloadScrubber::isSensitiveKey('compass'));
         self::assertSame([], (new PayloadScrubber())->scrub([]));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function cardTextProvider(): iterable
+    {
+        yield 'plain' => ['card 4111111111111111 ok', 'card [Filtered] ok'];
+        yield 'spaces' => ['4111 1111 1111 1111', '[Filtered]'];
+        yield 'dashes' => ['4111-1111-1111-1111', '[Filtered]'];
+        yield 'string start and end' => ['4111111111111111', '[Filtered]'];
+        yield 'punctuation' => ['(4111111111111111), "4111111111111111"; [4111111111111111].', '([Filtered]), "[Filtered]"; [[Filtered]].'];
+        yield 'colon and equals' => ['pan:4111111111111111 x=4111111111111111', 'pan:[Filtered] x=[Filtered]'];
+        yield 'url path' => ['https://shop.example/pay/4111111111111111/confirm', 'https://shop.example/pay/[Filtered]/confirm'];
+        yield 'query string' => ['n=1&c=4111111111111111&z=2', 'n=1&c=[Filtered]&z=2'];
+        yield 'form data' => ['name=Ann&pan=4111+1111+1111+1111', 'name=Ann&pan=4111+1111+1111+1111'];
+        yield 'json' => ['{"pan":"4111111111111111","n":1}', '{"pan":"[Filtered]","n":1}'];
+        yield 'json number' => ['{"pan":4111111111111111}', '{"pan":[Filtered]}'];
+        yield 'newline' => ["a\n4111 1111 1111 1111\nb", "a\n[Filtered]\nb"];
+        yield 'amex' => ['378282246310005', '[Filtered]'];
+        yield 'nineteen digits' => ['6304000000000000000', '[Filtered]'];
+        yield 'hex suffix' => ['4111111111111111abc', '4111111111111111abc'];
+        yield 'hex prefix' => ['abc4111111111111111', 'abc4111111111111111'];
+        yield 'luhn run in hex token' => ['35289736781368f7639f97b1a282bbd3', '35289736781368f7639f97b1a282bbd3'];
+    }
+
+    #[DataProvider('cardTextProvider')]
+    public function testMasksCardsAtBoundaries(string $input, string $expected): void
+    {
+        self::assertSame($expected, PayloadScrubber::maskCards($input));
+    }
+
+    public function testCardsInRequestFormData(): void
+    {
+        $payload = (new PayloadScrubber())->scrub([
+            'request' => [
+                'data' => ['note' => 'pan 4111-1111-1111-1111 here', 'json' => '{"pan":"4111111111111111"}'],
+            ],
+        ]);
+
+        self::assertIsArray($payload['request']);
+        self::assertIsArray($payload['request']['data']);
+        self::assertSame('pan [Filtered] here', $payload['request']['data']['note']);
+        self::assertSame('{"pan":"[Filtered]"}', $payload['request']['data']['json']);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function luhnTraceIds(): array
+    {
+        return [
+            '35289736781368f7639f97b1a282bbd3',
+            '4111111111111111f7639f97b1a282bb',
+            'a4111111111111111f7639f97b1a282b',
+            '378282246310005abcdef0123456789a',
+            '0af7651916cd43dd8448eb211c80319c',
+            '4111111111111111',
+            '00f067aa0ba902b7',
+        ];
+    }
+
+    public function testLuhnValidRunsInTraceIdsStayUntouched(): void
+    {
+        foreach (self::luhnTraceIds() as $traceId) {
+            $payload = (new PayloadScrubber())->scrub([
+                'extra'    => ['trace_id' => $traceId, 'span_id' => $traceId, 'parent_span_id' => $traceId, 'TRACE_ID' => $traceId],
+                'tags'     => ['trace_id' => $traceId],
+                'contexts' => ['trace' => ['trace_id' => $traceId, 'span_id' => $traceId, 'parent_span_id' => $traceId]],
+            ]);
+
+            self::assertSame(['trace_id' => $traceId, 'span_id' => $traceId, 'parent_span_id' => $traceId, 'TRACE_ID' => $traceId], $payload['extra']);
+            self::assertSame(['trace_id' => $traceId], $payload['tags']);
+            self::assertSame(['trace' => ['trace_id' => $traceId, 'span_id' => $traceId, 'parent_span_id' => $traceId]], $payload['contexts']);
+        }
+    }
+
+    public function testMaskCardsAloneLeavesHexTraceIdsUntouched(): void
+    {
+        foreach (self::luhnTraceIds() as $traceId) {
+            if (ctype_xdigit($traceId) && !ctype_digit($traceId)) {
+                self::assertSame($traceId, PayloadScrubber::maskCards($traceId));
+            }
+        }
+    }
+
+    public function testRandomHexIdsAreNeverMasked(): void
+    {
+        mt_srand(31);
+        $scrubber = new PayloadScrubber();
+        for ($i = 0; $i < 20000; ++$i) {
+            $traceId = bin2hex(random_bytes(16));
+            $spanId  = bin2hex(random_bytes(8));
+            if (!ctype_digit($traceId)) {
+                self::assertSame($traceId, PayloadScrubber::maskCards($traceId), $traceId);
+            }
+            $payload = $scrubber->scrub(['tags' => ['trace_id' => $traceId], 'contexts' => ['trace' => ['trace_id' => $traceId, 'span_id' => $spanId]]]);
+            self::assertSame(['trace_id' => $traceId], $payload['tags']);
+            self::assertSame(['trace' => ['trace_id' => $traceId, 'span_id' => $spanId]], $payload['contexts']);
+        }
+    }
+
+    public function testIdentifierKeyWithNonStringValueIsStillScrubbed(): void
+    {
+        $payload = (new PayloadScrubber())->scrub(['extra' => ['trace_id' => 4111111111111111, 'span_id' => ['n' => 'pan 4111111111111111']]]);
+
+        self::assertSame(['trace_id' => '[Filtered]', 'span_id' => ['n' => 'pan [Filtered]']], $payload['extra']);
     }
 }

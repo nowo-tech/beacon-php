@@ -1,5 +1,9 @@
 includes:
     - vendor/phpstan/phpstan-phpunit/extension.neon
+    # REQ-CS-005: FrankenPHP classic + worker rulesets (require-dev only).
+    - vendor/nowo-tech/phpstan-frankenphp/extension.neon
+    - vendor/nowo-tech/phpstan-frankenphp/ruleset-classic.neon
+    - vendor/nowo-tech/phpstan-frankenphp/ruleset-worker.neon
 
 parameters:
     level: max
@@ -14,6 +18,33 @@ parameters:
     parallel:
         maximumNumberOfProcesses: 2
     ignoreErrors:
+        # REQ-CS-005, justified process-wide state of a framework-free client (docs/FRANKENPHP-WORKER-AUDIT.md):
+        # the `Beacon` facade holds the one global client, `ErrorHandler` installs the process error / exception / shutdown
+        # handlers (restored by unregister(), bounded reserved memory) and `IngestPathResolver::shared()` holds a
+        # server-capability cache of at most 32 entries without request, user or tenant data. Hosts call reset() between
+        # requests (tests/Unit/WorkerRequestLoopTest.php).
+        -
+            identifiers:
+                - frankenphp.worker.noMutableStaticProperty
+                - frankenphp.worker.noSetErrorExceptionHandler
+                - frankenphp.worker.noPersistentIniSet
+                - frankenphp.worker.noRegisterShutdownFunction
+            paths:
+                - src/Beacon.php
+                - src/ErrorHandler/ErrorHandler.php
+                - src/Ingest/IngestPathResolver.php
+        # Tests install and restore the process handlers / environment on purpose (every test restores what it changed).
+        -
+            identifiers:
+                - frankenphp.worker.noErrorReportingMutation
+                - frankenphp.worker.noPersistentIniSet
+                - frankenphp.worker.noSetErrorExceptionHandler
+                - frankenphp.classic.noPutenv
+                - frankenphp.classic.noExitOrDie
+            paths:
+                - tests/Unit/ErrorHandler/ErrorHandlerTest.php
+                - tests/Unit/OptionsTest.php
+                - tests/Smoke/no-mbstring.php
         # Tests read decoded envelope JSON (mixed) and assert on it; src/ gets no such exemption.
         -
             identifiers:

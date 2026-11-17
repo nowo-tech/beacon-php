@@ -16,8 +16,9 @@
    [SPEC-KIT.md](SPEC-KIT.md).
 3. **Repository REQs** — nowo-tech bundle standards (`BUNDLES_FULL_SPECS_DETAILS.md`) mapped to Makefile targets:
    `release-check` (REQ-MAKE-002), `check-no-cursor-coauthor` (REQ-GIT-001), `test-coverage` (REQ-TEST-003/008).
-   Pending: the `nowo-tech/phpstan-frankenphp` rulesets and Igor (REQ-CS-005/008) report the intentional bounded
-   process-wide state (ingest-path cache, error handlers, buffers) and need a justified baseline first.
+   REQ-CS-005/008: the `nowo-tech/phpstan-frankenphp` classic + worker rulesets and Igor run in `make phpstan` /
+   `make igor` (and CI); the intentional bounded process-wide state (ingest-path cache, error handlers, buffers) is a
+   justified baseline, see [FRANKENPHP-WORKER-AUDIT.md](FRANKENPHP-WORKER-AUDIT.md).
 
 ## User stories
 

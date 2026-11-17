@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- Audit SG-L2 (correctness, no security impact): `PayloadScrubber::maskCards()` treated any Luhn-valid 13-19 digit run as a card number, including digits inside hex tokens, so about 0.18% of random 32-hex trace ids came out partly masked (`35289736781368f7639f97b1a282bbd3` became `[Filtered]f7639f97b1a282bbd3`) and event-to-trace correlation broke. A card run now needs a non-alphanumeric boundary on both sides (`(?<![0-9A-Za-z])` / `(?![0-9A-Za-z])`; spaces and dashes inside the number still work), and the string values of `trace_id`, `span_id` and `parent_span_id` keys (`tags`, `extra`, `contexts.trace`, breadcrumb data) are never scrubbed. Real card numbers are still masked in text, URLs, query strings, form data and JSON.
+- Audit SG-L2 (correctness, no security impact): about 0.18% of random 32-hex trace ids contain a Luhn-valid 13-19 digit run, so `PayloadScrubber` masked part of them (`[Filtered]f7639f97b1a282bbd3`) and event-to-trace correlation broke. The values of `trace_id`, `span_id` and `parent_span_id` keys (`tags`, `extra`, `contexts.trace`, breadcrumb data, any depth, key match case-insensitive) are now left intact when they are id-shaped (`[A-Za-z0-9._-]{8,128}`, the shape `TraceIdProvider` accepts); free text or URLs under those keys are still scrubbed. Card masking in text is unchanged: a card number glued to letters is still masked. A bare digit-only id under those keys stays unmasked by design. Known gap, not changed here: card numbers separated by `+` or `%20` are not masked (separate follow-up).
 
 ## [0.3.0] - 2026-11-17
 

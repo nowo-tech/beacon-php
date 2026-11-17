@@ -10,8 +10,6 @@ use PHPUnit\Framework\TestCase;
 use stdClass;
 
 use function bin2hex;
-use function ctype_digit;
-use function ctype_xdigit;
 use function mt_srand;
 use function random_bytes;
 use function str_repeat;
@@ -123,9 +121,14 @@ final class PayloadScrubberTest extends TestCase
         yield 'newline' => ["a\n4111 1111 1111 1111\nb", "a\n[Filtered]\nb"];
         yield 'amex' => ['378282246310005', '[Filtered]'];
         yield 'nineteen digits' => ['6304000000000000000', '[Filtered]'];
-        yield 'hex suffix' => ['4111111111111111abc', '4111111111111111abc'];
-        yield 'hex prefix' => ['abc4111111111111111', 'abc4111111111111111'];
-        yield 'luhn run in hex token' => ['35289736781368f7639f97b1a282bbd3', '35289736781368f7639f97b1a282bbd3'];
+        yield 'glued suffix' => ['4111111111111111abc', '[Filtered]abc'];
+        yield 'glued prefix' => ['abc4111111111111111', 'abc[Filtered]'];
+        yield 'glued card word' => ['card4111111111111111', 'card[Filtered]'];
+        yield 'glued id=AB' => ['id=AB4111111111111111', 'id=AB[Filtered]'];
+        yield 'glued expiry' => ['cc=4111111111111111EXP1225', 'cc=[Filtered]EXP1225'];
+        yield 'glued REF and X' => ['REF4012888888881881X', 'REF[Filtered]X'];
+        yield 'glued path' => ['/pay/c4111111111111111', '/pay/c[Filtered]'];
+        yield 'glued AMEX' => ['AMEX378282246310005', 'AMEX[Filtered]'];
     }
 
     #[DataProvider('cardTextProvider')]
@@ -154,7 +157,7 @@ final class PayloadScrubberTest extends TestCase
     private function luhnTraceIds(): array
     {
         return [
-            '35289736781368f7639f97b1a282bbd3',
+            '00000000000000000000deadbeefcafe',
             '4111111111111111f7639f97b1a282bb',
             'a4111111111111111f7639f97b1a282b',
             '378282246310005abcdef0123456789a',
@@ -179,15 +182,6 @@ final class PayloadScrubberTest extends TestCase
         }
     }
 
-    public function testMaskCardsAloneLeavesHexTraceIdsUntouched(): void
-    {
-        foreach ($this->luhnTraceIds() as $traceId) {
-            if (ctype_xdigit($traceId) && !ctype_digit($traceId)) {
-                self::assertSame($traceId, PayloadScrubber::maskCards($traceId));
-            }
-        }
-    }
-
     public function testRandomHexIdsAreNeverMasked(): void
     {
         mt_srand(31);
@@ -195,9 +189,6 @@ final class PayloadScrubberTest extends TestCase
         for ($i = 0; $i < 20000; ++$i) {
             $traceId = bin2hex(random_bytes(16));
             $spanId  = bin2hex(random_bytes(8));
-            if (!ctype_digit($traceId)) {
-                self::assertSame($traceId, PayloadScrubber::maskCards($traceId), $traceId);
-            }
             $payload = $scrubber->scrub(['tags' => ['trace_id' => $traceId], 'contexts' => ['trace' => ['trace_id' => $traceId, 'span_id' => $spanId]]]);
             self::assertSame(['trace_id' => $traceId], $payload['tags']);
             self::assertSame(['trace' => ['trace_id' => $traceId, 'span_id' => $spanId]], $payload['contexts']);
@@ -209,5 +200,14 @@ final class PayloadScrubberTest extends TestCase
         $payload = (new PayloadScrubber())->scrub(['extra' => ['trace_id' => 4111111111111111, 'span_id' => ['n' => 'pan 4111111111111111']]]);
 
         self::assertSame(['trace_id' => '[Filtered]', 'span_id' => ['n' => 'pan [Filtered]']], $payload['extra']);
+    }
+
+    public function testNonIdShapedValuesUnderIdentifierKeysAreScrubbed(): void
+    {
+        $payload = (new PayloadScrubber())->scrub(['extra' => ['trace_id' => 'pan 4111 1111 1111 1111', 'span_id' => 'https://u:p@h/x']]);
+
+        self::assertIsArray($payload['extra']);
+        self::assertSame('pan [Filtered]', $payload['extra']['trace_id']);
+        self::assertStringNotContainsString('u:p@', (string) $payload['extra']['span_id']);
     }
 }

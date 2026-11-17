@@ -28,6 +28,8 @@ use function strtolower;
  *   provider keys, `password=…` pairs) and Luhn-valid card numbers are masked in text and in integers;
  * - request headers that carry credentials (`Authorization`, `Cookie`, `X-Beacon-Auth`, …) and `request.cookies`
  *   become `[Filtered]`;
+ * - id-shaped string values (`[A-Za-z0-9._-]{8,128}`) of `trace_id`, `span_id` and `parent_span_id` (tags, extra,
+ *   `contexts.trace`, breadcrumb data) are correlation ids and are kept as they are;
  * - structures nested deeper than {@see MAX_DEPTH} are replaced by `[Filtered]` instead of being sent unchecked.
  *
  * Objects are summarised (Stringable → string, other objects → class name). `user` is left as the application set it
@@ -54,6 +56,17 @@ final class PayloadScrubber
     private const EXTRA_SENSITIVE_KEY = '/(?:session|cookie|csrf|xsrf|credit[_-]?card|card[_-]?(?:number|num|no)(?![a-z])|(?<![a-z])(?:cvv|cvc|iban|ssn|pass|pwd)(?![a-z]))/i';
 
     private const CARD_PATTERN = '/(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)/';
+
+    /**
+     * Correlation identifier keys. A string value under one of them that has the shape of an id
+     * ({@see IDENTIFIER_VALUE}) is kept as it is, so a Luhn-valid digit run inside a hex trace id is not masked
+     * (audit SG-L2). Anything else under these keys (free text, URLs) is scrubbed like any other value. A bare
+     * digit-only id under these keys stays unmasked by design.
+     */
+    private const IDENTIFIER_KEYS = ['trace_id', 'span_id', 'parent_span_id'];
+
+    /** Shape TraceIdProvider::normalize() accepts: no spaces, ':', '/', '@'. */
+    private const IDENTIFIER_VALUE = '/^[A-Za-z0-9._-]{8,128}$/';
 
     private const URL_KEYS = ['url', 'from', 'to'];
 
@@ -145,6 +158,12 @@ final class PayloadScrubber
     {
         $out = [];
         foreach ($map as $key => $value) {
+            if (is_string($key) && is_string($value) && in_array(strtolower($key), self::IDENTIFIER_KEYS, true) && preg_match(self::IDENTIFIER_VALUE, $value) === 1) {
+                $out[$key] = $value;
+
+                continue;
+            }
+
             $out[$key] = is_string($key) && self::isSensitiveKey($key)
                 ? SensitiveValueRedactor::FILTERED
                 : $this->scrubValue($value, $depth + 1);

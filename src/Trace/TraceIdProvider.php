@@ -12,8 +12,6 @@ use function trim;
 
 /**
  * Request / job scoped correlation id attached to every Beacon event (`tags.trace_id` and `extra.trace_id`).
- *
- * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
 final class TraceIdProvider
 {

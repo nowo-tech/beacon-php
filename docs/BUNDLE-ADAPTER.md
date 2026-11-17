@@ -27,6 +27,9 @@ beacon-js uses the same ingest with a `length` item header and `sdk` blocks; Bea
   request, deploy (full and defaults), queue snapshot, schedule catalog, check-in.
 - `tests/Parity/BundleParityTest.php` (`make parity BUNDLE=…`, CI job `bundle-parity`): the same 13 cases live against
   a bundle checkout, plus a real exception with runtime / OS contexts, source lines and frame vars.
+  It stays pinned to v1.19.1, the release the goldens were recorded from: BeaconBundle 1.21+ sends no DSN header
+  (the core is forced to `envelope_dsn: full` here) and extends classes that are `final` from 0.3.0, so it cannot be
+  loaded against this package until it is migrated. The live check moves to the migrated bundle with the adapter.
 - Normalisation in both: the random event id and breadcrumb timestamps (the bundle has no injectable generator).
 
 ## Intentional differences (core defaults vs bundle)
@@ -48,8 +51,10 @@ beacon-js uses the same ingest with a `length` item header and `sdk` blocks; Bea
 
 1. `composer.json`: `"nowo-tech/beacon-php": "^0.1"` (or `^1.0` once tagged).
 2. Value objects: from 0.3.0 the core `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and
-   `InvalidDsnException` are `final`. Wrap them (composition) instead of extending; `BeaconDsnParser::parse()`
-   delegates to `DsnParser` and re-wraps the result / exception. With `^0.1` / `^0.2` the old subclasses still work.
+   `InvalidDsnException` are `final`. Register the core state classes as services tagged `kernel.reset`
+   (`method: reset`), move `TraceIdProvider::REQUEST_ATTRIBUTE` to a bundle class, retire `BeaconDsn` or make it a
+   wrapper, and make `InvalidBeaconDsnException` standalone (`BeaconExceptionInterface`); details in
+   [UPGRADING.md](UPGRADING.md#beaconbundle). With `^0.1` / `^0.2` the old subclasses still work.
 3. `Support\SensitiveValueRedactor`, `Support\FrameVarsSerializer`, `Context\DatabaseExceptionContext`: static
    facades forwarding to `Nowo\Beacon\Scrubber\*` / `Nowo\Beacon\Context\*` (identical rules), or `class_alias`.
 4. `Envelope\EnvelopeBuilder`: keeps its constructor; builds a core `EnvelopeBuilder` with

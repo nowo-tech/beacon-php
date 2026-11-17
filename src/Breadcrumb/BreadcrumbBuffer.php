@@ -10,8 +10,6 @@ use function microtime;
 
 /**
  * Breadcrumb trail attached to the next captured event/transaction (then cleared). Bounded to {@see MAX_ITEMS}.
- *
- * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
 final class BreadcrumbBuffer
 {

@@ -19,7 +19,6 @@ use function trim;
  * user and extra values an application sets explicitly.
  *
  * One instance per {@see Client}; call {@see reset()} between requests or jobs of a long-running worker.
- * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
 final class Scope
 {

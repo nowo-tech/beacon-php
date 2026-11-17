@@ -7,7 +7,8 @@ All notable changes to this project are documented here. The format follows
 
 ### BREAKING (0.3.0)
 
-- REQ-PHP-001: `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and `Dsn\InvalidDsnException` are now `final`. Every other public class was already `final` or is an interface. Code that extends one of them must switch to composition (see UPGRADING). BeaconBundle's `BeaconDsn extends Dsn` and `InvalidBeaconDsnException extends InvalidDsnException` must be migrated before it can require `^0.3`.
+- REQ-PHP-001: `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and `Dsn\InvalidDsnException` are now `final`. Every other public class was already `final` or is an interface. Code that extends one of them must switch to composition (see UPGRADING). BeaconBundle extends all six and must be migrated before it can require `^0.3`: `Scope\Scope`, `Instrumentation\SpanBuffer`, `Breadcrumb\BreadcrumbBuffer` and `Trace\TraceIdProvider` (each only adds Symfony's `ResetInterface`), `Dsn\BeaconDsn extends Dsn` and `Dsn\InvalidBeaconDsnException extends InvalidDsnException`. The migration path is in UPGRADING ("BeaconBundle").
+- `Dsn` is `final readonly` and holds the secret in a `\SensitiveParameterValue` (audit SE-BP-M1): `var_dump()`, `print_r()`, `var_export()`, `json_encode()`, array casts and exception traces never show it. `serialize()` / `unserialize()` of a `Dsn` (or of anything that holds one) now throw `LogicException`, as BeaconBundle's `BeaconDsn` already did. `getSecretKey()`, `getBeaconAuthHeader()` and `toString()` are unchanged.
 
 ### Changed (tooling)
 
@@ -16,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 
+- Stale "Not final so that framework adapters can extend it" docblocks removed (audit SE-BP-L2).
+- The live parity suite (`make parity`, CI job `bundle-parity`) stays pinned to BeaconBundle 1.19.1, the release the recorded goldens come from (header mode `full`). BeaconBundle 1.21+ sends no DSN header and extends the classes that are now `final`, so it cannot be loaded against 0.3.0; the suite moves to the migrated bundle together with the adapter (audit SE Info).
 - Org scaffold (REQ compliance sweep 2026-11-16): `CODE_OF_CONDUCT.md`, docs (SECURITY with threat model and release checklist, ENGRAM, SPEC-DRIVEN-DEVELOPMENT, SPEC-KIT, PSR, tables of contents), the security policy moved to `.github/SECURITY.md`, Spec Kit baseline `specs/001-baseline` (49/49 files), README badges / Found this useful / canonical Documentation / Tests and coverage, `.cursor` rules + MCP, issue and PR templates, Copilot instructions, PR lint, stale and sync-releases workflows; `release-check` gains `check-open-prs`, `composer-sync` and `cs-fix`. No change to `src/`.
 
 ## [0.2.0] - 2026-11-11

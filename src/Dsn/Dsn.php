@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Nowo\Beacon\Dsn;
 
+use LogicException;
 use SensitiveParameter;
+use SensitiveParameterValue;
 
 use function is_int;
 
@@ -17,12 +19,16 @@ use function is_int;
  *
  * The secret is sensitive: it only leaves the process in the `X-Beacon-Auth` header
  * ({@see getBeaconAuthHeader()}). {@see toString()} keeps it for compatibility with the Symfony bundle's
- * `BeaconDsn`; never log or print that value. `var_dump()` / `print_r()` show it masked.
+ * `BeaconDsn`; never log or print that value.
  *
- * Not final so that framework adapters (BeaconBundle's `BeaconDsn`) can extend it and keep their own type name.
+ * The secret is held in a {@see SensitiveParameterValue}, so `var_dump()`, `print_r()`, `var_export()`,
+ * `json_encode()`, array casts and exception traces never show it, and the class cannot be serialized
+ * ({@see __serialize()} and {@see __unserialize()} throw a {@see LogicException}).
  */
 final readonly class Dsn
 {
+    private SensitiveParameterValue $secretKey;
+
     private string $projectId;
 
     /**
@@ -32,11 +38,12 @@ final readonly class Dsn
         private string $scheme,
         private string $publicKey,
         #[SensitiveParameter]
-        private string $secretKey,
+        string $secretKey,
         private string $host,
         private ?int $port,
         string|int $projectId,
     ) {
+        $this->secretKey = new SensitiveParameterValue($secretKey);
         $this->projectId = is_int($projectId) ? (string) $projectId : $projectId;
     }
 
@@ -61,7 +68,10 @@ final readonly class Dsn
      */
     public function getSecretKey(): string
     {
-        return $this->secretKey;
+        /** @var string $secret */
+        $secret = $this->secretKey->getValue();
+
+        return $secret;
     }
 
     /**
@@ -114,7 +124,7 @@ final readonly class Dsn
      */
     public function getBeaconAuthHeader(): string
     {
-        return 'Beacon beacon_key=' . $this->publicKey . ', beacon_secret=' . $this->secretKey;
+        return 'Beacon beacon_key=' . $this->publicKey . ', beacon_secret=' . $this->getSecretKey();
     }
 
     /**
@@ -130,7 +140,7 @@ final readonly class Dsn
      */
     public function toString(): string
     {
-        return $this->scheme . '://' . $this->publicKey . ':' . $this->secretKey . '@' . $this->authority()
+        return $this->scheme . '://' . $this->publicKey . ':' . $this->getSecretKey() . '@' . $this->authority()
             . '/' . $this->projectId;
     }
 
@@ -149,6 +159,30 @@ final readonly class Dsn
             'port'      => $this->port,
             'projectId' => $this->projectId,
         ];
+    }
+
+    /**
+     * A DSN holds a secret: it must never be serialized (cache, session, queue message).
+     *
+     * @throws LogicException always
+     *
+     * @return array<string, mixed>
+     */
+    public function __serialize(): array
+    {
+        throw new LogicException('A Beacon DSN holds a secret and cannot be serialized.');
+    }
+
+    /**
+     * Refuses to rebuild a DSN from serialized data.
+     *
+     * @param array<mixed> $data
+     *
+     * @throws LogicException always
+     */
+    public function __unserialize(array $data): void
+    {
+        throw new LogicException('A Beacon DSN holds a secret and cannot be unserialized.');
     }
 
     private function authority(): string

@@ -9,6 +9,33 @@
 - Do not extend them. Wrap the instance and delegate (composition), for example a `MyDsn` that holds a `Dsn` and exposes extra methods.
 - To customise behaviour, use the interfaces and extension points that exist: `ClientInterface`, `TransportInterface`, `RequestContextProviderInterface`, `UserContextProviderInterface`, `LifecycleInterface`, `BeaconExceptionInterface` (catch or implement it instead of extending `InvalidDsnException`).
 - Mocking in tests: build a real instance (they have no I/O) or mock the interface your code depends on.
+- `Dsn` can no longer be serialized: `serialize()` and `unserialize()` throw `LogicException` (the secret must not reach a cache, session or queue message). Store the DSN string in your configuration and parse it again with `DsnParser` where needed. `getSecretKey()` still returns the string.
+
+### BeaconBundle
+
+BeaconBundle (up to 1.26) extends all six classes and must be migrated before it requires `^0.3`:
+
+| Bundle class | Today | After |
+| --- | --- | --- |
+| `Scope\Scope` | `extends Nowo\Beacon\Scope\Scope implements ResetInterface` | delete it; register `Nowo\Beacon\Scope\Scope` as a service |
+| `Instrumentation\SpanBuffer` | `extends Nowo\Beacon\Span\SpanBuffer implements ResetInterface` | delete it; register `Nowo\Beacon\Span\SpanBuffer` as a service |
+| `Breadcrumb\BreadcrumbBuffer` | `extends Nowo\Beacon\Breadcrumb\BreadcrumbBuffer implements ResetInterface` | delete it; register `Nowo\Beacon\Breadcrumb\BreadcrumbBuffer` as a service |
+| `Trace\TraceIdProvider` | `extends Nowo\Beacon\Trace\TraceIdProvider implements ResetInterface`, `REQUEST_ATTRIBUTE` | delete it; register `Nowo\Beacon\Trace\TraceIdProvider` as a service; move the constant |
+| `Dsn\BeaconDsn` | `extends Dsn`, secret in `SensitiveParameterValue`, `__serialize()` throws | composition (holds a core `Dsn`) or retired |
+| `Dsn\InvalidBeaconDsnException` | `extends InvalidDsnException` | standalone, implementing `BeaconExceptionInterface` |
+
+- **State classes.** The four core state classes each have a public `reset()` and none of them needs `ResetInterface` to be reset: register them as services tagged `kernel.reset` with `method: reset`, for example
+
+  ```yaml
+  Nowo\Beacon\Scope\Scope:
+      tags:
+          - { name: kernel.reset, method: reset }
+  ```
+
+  and the same for `Span\SpanBuffer`, `Breadcrumb\BreadcrumbBuffer` and `Trace\TraceIdProvider`. Keep the old bundle class names as service aliases if applications inject them, and point the request-scope listener's `$scopeState` iterator at the core service ids.
+- **`TraceIdProvider::REQUEST_ATTRIBUTE`** (`'_beacon_trace_id'`) moves to a bundle class, for example a constant on `EventListener\BeaconTraceRequestListener`; keep the value so request attributes read by applications do not change.
+- **`BeaconDsn`.** The core `Dsn` now protects the secret itself (`SensitiveParameterValue`, `__serialize()` / `__unserialize()` throw, masked `__debugInfo()`), which is what `BeaconDsn` added. Either retire `BeaconDsn` and type-hint `Nowo\Beacon\Dsn\Dsn`, or keep it as a final class that holds a core `Dsn` and delegates every getter (it is then no longer a `Dsn`: methods that pass it to core code pass the inner `Dsn`).
+- **`InvalidBeaconDsnException`.** Make it a standalone `final class InvalidBeaconDsnException extends \InvalidArgumentException implements Nowo\Beacon\Exception\BeaconExceptionInterface`; `BeaconDsnParser::parse()` catches the core `InvalidDsnException` and rethrows it with the same message and the core exception as `previous`. Code that catches `BeaconExceptionInterface` or `\InvalidArgumentException` keeps working; code that catches `InvalidDsnException` must catch `BeaconExceptionInterface` instead.
 
 ## To 0.2.0
 

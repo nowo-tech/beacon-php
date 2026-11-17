@@ -16,8 +16,6 @@ use function random_bytes;
  * Performance spans attached to the next transaction ({@see Client::captureTransaction()}).
  * Bounded to {@see MAX_ITEMS}.
  *
- * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
- *
  * @phpstan-type Span array{
  *     op: string,
  *     description: string,

@@ -9,8 +9,6 @@ use Nowo\Beacon\Exception\BeaconExceptionInterface;
 
 /**
  * Thrown when a Beacon DSN string cannot be parsed. The message never contains the DSN or the secret.
- *
- * Not final so that BeaconBundle's `InvalidBeaconDsnException` can extend it.
  */
 final class InvalidDsnException extends InvalidArgumentException implements BeaconExceptionInterface
 {

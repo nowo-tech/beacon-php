@@ -97,6 +97,7 @@ make down
 - [Privacy: what is sent, what never is, scrubbing](docs/PRIVACY.md)
 - [Wire format and BeaconBundle parity / adapter plan](docs/BUNDLE-ADAPTER.md)
 - [PSR evaluation (REQ-CS-007)](docs/PSR.md)
+- [FrankenPHP worker audit (kernel not reset)](docs/FRANKENPHP-WORKER-AUDIT.md)
 - [Security policy (reporting)](.github/SECURITY.md)
 
 ## Tests and coverage

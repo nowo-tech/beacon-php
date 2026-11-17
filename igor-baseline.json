@@ -1,0 +1,352 @@
+{
+  "files": {
+    "src/Beacon.php": [
+      {
+        "message": "Mutation of state 'static::$client' in Beacon::init()",
+        "reason": "The facade is the package's single documented global client; init() closes the previous client and restores the previous handlers first, close() clears it (docs/FRANKENPHP-WORKER-AUDIT.md)."
+      },
+      {
+        "message": "Mutation of state 'static::$errorHandler' in Beacon::init()",
+        "reason": "The facade is the package's single documented global client; init() closes the previous client and restores the previous handlers first, close() clears it (docs/FRANKENPHP-WORKER-AUDIT.md)."
+      },
+      {
+        "message": "Mutation of state 'static::$client' in Beacon::setClient()",
+        "reason": "The facade is the package's single documented global client; init() closes the previous client and restores the previous handlers first, close() clears it (docs/FRANKENPHP-WORKER-AUDIT.md)."
+      },
+      {
+        "message": "Mutation detected on a local reference to a shared service ($client). Risk of State Leak in a worker.",
+        "reason": "The facade is the package's single documented global client; init() closes the previous client and restores the previous handlers first, close() clears it (docs/FRANKENPHP-WORKER-AUDIT.md)."
+      },
+      {
+        "message": "Mutation detected on a local reference to a shared service ($client). Risk of State Leak in a worker.",
+        "reason": "The facade is the package's single documented global client; init() closes the previous client and restores the previous handlers first, close() clears it (docs/FRANKENPHP-WORKER-AUDIT.md)."
+      }
+    ],
+    "src/Breadcrumb/BreadcrumbBuffer.php": [
+      {
+        "message": "Mutation of state 'items' in BreadcrumbBuffer::add()",
+        "reason": "Request state, bounded to 50 items, cleared by Client::reset() (tests/Unit/WorkerRequestLoopTest.php)."
+      },
+      {
+        "message": "Mutation of state 'items' in BreadcrumbBuffer::add()",
+        "reason": "Request state, bounded to 50 items, cleared by Client::reset() (tests/Unit/WorkerRequestLoopTest.php)."
+      }
+    ],
+    "src/Client.php": [
+      {
+        "message": "Mutation of state 'captured' in Client::captureException()",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->breadcrumbs). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->scope). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->scope). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->scope). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->scope). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->scope). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->traceIdProvider). Risk of State Leak in a worker.",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'closed' in Client::close()",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'lastEventId' in Client::capture()",
+        "reason": "The client owns its request state and clears it in reset(); the mutations go to objects that reset() clears (WorkerRequestLoopTest)."
+      }
+    ],
+    "src/Envelope/EnvelopeBuilder.php": [
+      {
+        "message": "Mutation detected on a local reference to a shared service ($occurredAt). Risk of State Leak in a worker.",
+        "reason": "The source-line cache is keyed by file path (code, not request data) and is an LRU with a fixed maximum; setTimezone() is called on an immutable DateTimeImmutable."
+      },
+      {
+        "message": "Mutation of state 'sourceLineCache' in EnvelopeBuilder::loadSourceLines()",
+        "reason": "The source-line cache is keyed by file path (code, not request data) and is an LRU with a fixed maximum; setTimezone() is called on an immutable DateTimeImmutable."
+      },
+      {
+        "message": "Mutation of state 'sourceLineCache' in EnvelopeBuilder::loadSourceLines()",
+        "reason": "The source-line cache is keyed by file path (code, not request data) and is an LRU with a fixed maximum; setTimezone() is called on an immutable DateTimeImmutable."
+      }
+    ],
+    "src/ErrorHandler/ErrorHandler.php": [
+      {
+        "message": "Mutation of state 'errorHandlerInstalled' in ErrorHandler::registerErrorHandler()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'previousErrorHandler' in ErrorHandler::registerErrorHandler()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'set_error_handler' modifies global process error handlers.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'exceptionHandlerInstalled' in ErrorHandler::registerExceptionHandler()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'previousExceptionHandler' in ErrorHandler::registerExceptionHandler()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'set_exception_handler' modifies global process exception handlers.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'shutdownRegistered' in ErrorHandler::registerShutdownFunction()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'reservedMemory' in ErrorHandler::registerShutdownFunction()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'static::$registered' in ErrorHandler::registerShutdownFunction()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'register_shutdown_function' registers a process-level shutdown handler.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'errorHandlerInstalled' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'exceptionHandlerInstalled' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'previousErrorHandler' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'previousExceptionHandler' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'reservedMemory' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'client' in ErrorHandler::unregister()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'error_reporting' modifies the global PHP process state.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'lastErrorKey' in ErrorHandler::handleError()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'uncaughtSeen' in ErrorHandler::handleException()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'reservedMemory' in ErrorHandler::handleShutdown()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'lastErrorKey' in ErrorHandler::captureFatalError()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Mutation of state 'captured' in ErrorHandler::captureOnce()",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'set_error_handler' modifies global process error handlers.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'set_exception_handler' modifies global process exception handlers.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      },
+      {
+        "message": "Function 'ini_set' modifies the global PHP process state.",
+        "reason": "The process error / exception / shutdown handlers are the feature; one per init(), restored by unregister(), reserved memory bounded."
+      }
+    ],
+    "src/Http/BeaconMiddleware.php": [
+      {
+        "message": "Mutation detected on an injected dependency ($this->requestProvider). Risk of State Leak in a worker.",
+        "reason": "The PSR-7 request is set on the provider and cleared in finally around every request."
+      },
+      {
+        "message": "Mutation detected on an injected dependency ($this->requestProvider). Risk of State Leak in a worker.",
+        "reason": "The PSR-7 request is set on the provider and cleared in finally around every request."
+      }
+    ],
+    "src/Ingest/IngestPathResolver.php": [
+      {
+        "message": "Mutation of state 'static::$shared' in IngestPathResolver::shared()",
+        "reason": "Process-wide on purpose: a server capability per target (target => bool), at most 32 entries, no key, secret, request, user or tenant data; reset() forgets it."
+      },
+      {
+        "message": "Mutation of state 'known' in IngestPathResolver::learn()",
+        "reason": "Process-wide on purpose: a server capability per target (target => bool), at most 32 entries, no key, secret, request, user or tenant data; reset() forgets it."
+      },
+      {
+        "message": "Mutation of state 'known' in IngestPathResolver::learn()",
+        "reason": "Process-wide on purpose: a server capability per target (target => bool), at most 32 entries, no key, secret, request, user or tenant data; reset() forgets it."
+      }
+    ],
+    "src/Request/GlobalsRequestContextProvider.php": [
+      {
+        "message": "Usage of PHP Superglobal $_SERVER is discouraged in Worker mode.",
+        "reason": "Reads $_SERVER through a closure at call time and keeps nothing; the SAPI fills it per request."
+      }
+    ],
+    "src/Request/Psr7RequestContextProvider.php": [
+      {
+        "message": "Mutation of state 'request' in Psr7RequestContextProvider::setRequest()",
+        "reason": "Holds the current PSR-7 request only between BeaconMiddleware::setRequest() and clear()."
+      }
+    ],
+    "src/Scope/Scope.php": [
+      {
+        "message": "Mutation of state 'tags' in Scope::setTag()",
+        "reason": "Request state (tags, user, extra), cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'tags' in Scope::clearTags()",
+        "reason": "Request state (tags, user, extra), cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'user' in Scope::setUser()",
+        "reason": "Request state (tags, user, extra), cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'extra' in Scope::setExtra()",
+        "reason": "Request state (tags, user, extra), cleared by Client::reset() (WorkerRequestLoopTest)."
+      }
+    ],
+    "src/Span/SpanBuffer.php": [
+      {
+        "message": "Mutation of state 'spans' in SpanBuffer::add()",
+        "reason": "Request state, bounded to 100 spans, drained or cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'spans' in SpanBuffer::add()",
+        "reason": "Request state, bounded to 100 spans, drained or cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'spans' in SpanBuffer::drain()",
+        "reason": "Request state, bounded to 100 spans, drained or cleared by Client::reset() (WorkerRequestLoopTest)."
+      }
+    ],
+    "src/Trace/TraceIdProvider.php": [
+      {
+        "message": "Mutation of state 'traceId' in TraceIdProvider::getOrCreate()",
+        "reason": "Request state, cleared by Client::reset() (WorkerRequestLoopTest)."
+      },
+      {
+        "message": "Mutation of state 'traceId' in TraceIdProvider::set()",
+        "reason": "Request state, cleared by Client::reset() (WorkerRequestLoopTest)."
+      }
+    ],
+    "src/Transport/QueuedTransport.php": [
+      {
+        "message": "Mutation of state 'dropped' in QueuedTransport::send()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'queue' in QueuedTransport::send()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'bytes' in QueuedTransport::send()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'bytes' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'failures' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'dropped' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'queue' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'bytes' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'blockedUntil' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'dropped' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'failures' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'bytes' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'dropped' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'blockedUntil' in QueuedTransport::flush()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'blockedUntil' in QueuedTransport::clear()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'bytes' in QueuedTransport::evictOldest()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      },
+      {
+        "message": "Mutation of state 'dropped' in QueuedTransport::evictOldest()",
+        "reason": "Bounded queue (100 envelopes / 10 MiB, oldest evicted) of already-scrubbed bodies with its failure counters; drained by flush() and close()."
+      }
+    ],
+    "src/Transport/SymfonyHttpClientTransport.php": [
+      {
+        "message": "Mutation of state 'pending' in SymfonyHttpClientTransport::send()",
+        "reason": "Pending async requests, bounded by $maxPending; __destruct() finalises them and never throws."
+      },
+      {
+        "message": "Usage of __destruct() magic method is dangerous in Worker mode.",
+        "reason": "Pending async requests, bounded by $maxPending; __destruct() finalises them and never throws."
+      }
+    ]
+  }
+}

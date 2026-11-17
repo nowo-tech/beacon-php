@@ -46,7 +46,9 @@
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.64",
         "guzzlehttp/guzzle": "^7.9 || ^8.0",
+        "igor-php/igor-php": "^0.11.0",
         "monolog/monolog": "^3.0",
+        "nowo-tech/phpstan-frankenphp": "^1.4",
         "nyholm/psr7": "^1.8",
         "php-http/discovery": "^1.20",
         "phpstan/phpstan": "^2.1",
@@ -118,6 +120,7 @@
         "rector": "rector process",
         "rector-dry": "rector process --dry-run --no-progress-bar",
         "phpstan": "phpstan analyse --memory-limit=512M -c phpstan.neon.dist",
+        "igor": "igor-php --no-agent .",
         "validate": "composer validate --strict",
         "qa": [
             "@cs-check",
@@ -132,7 +135,8 @@
         "cs-fix": "Fix code style with PHP-CS-Fixer",
         "rector": "Apply Rector refactoring",
         "rector-dry": "Run Rector in dry-run mode",
-        "phpstan": "Run PHPStan static analysis (level max)",
+        "phpstan": "Run PHPStan static analysis (level max, FrankenPHP classic + worker rulesets)",
+        "igor": "Run Igor FrankenPHP worker-state audit (REQ-CS-008)",
         "validate": "Validate composer.json (composer validate --strict)",
         "qa": "Run all quality assurance checks"
     }

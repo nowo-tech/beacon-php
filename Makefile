@@ -2,7 +2,7 @@
 # REQ-MAKE-001 / REQ-MAKE-002 / REQ-MAKE-006
 
 .PHONY: help ensure-up up down build shell install test test-coverage test-matrix parity cs-check cs-fix rector rector-dry \
-	phpstan qa release-check composer-sync clean update validate setup-hooks check-no-cursor-coauthor
+	phpstan igor qa release-check composer-sync clean update validate setup-hooks check-no-cursor-coauthor
 
 COMPOSER_BIN := /usr/bin/composer
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
@@ -25,7 +25,8 @@ help:
 	@echo "  cs-check       Check code style"
 	@echo "  cs-fix         Fix code style"
 	@echo "  rector-dry     Rector dry run"
-	@echo "  phpstan        PHPStan (level max)"
+	@echo "  phpstan        PHPStan (level max, FrankenPHP classic + worker rulesets)"
+	@echo "  igor           Igor worker-state audit (REQ-CS-008)"
 	@echo "  qa             cs-check + phpstan + test"
 	@echo "  release-check  Full pre-release chain"
 	@echo "  setup-hooks    Install git hooks (REQ-GIT-001)"
@@ -87,6 +88,9 @@ rector-dry: ensure-up
 phpstan: ensure-up
 	$(COMPOSE) exec -T php $(COMPOSER_BIN) phpstan
 
+igor: ensure-up
+	$(COMPOSE) exec -T php $(COMPOSER_BIN) igor
+
 qa: ensure-up
 	$(COMPOSE) exec -T php $(COMPOSER_BIN) qa
 
@@ -100,7 +104,7 @@ update: ensure-up
 validate: ensure-up
 	$(COMPOSE) exec -T php $(COMPOSER_BIN) validate --strict
 
-# REQ-MAKE-002 order (library: no Twig, no demo; Igor and the FrankenPHP PHPStan rulesets are pending, see docs/SPEC-DRIVEN-DEVELOPMENT.md).
+# REQ-MAKE-002 order (library: no Twig, no demo).
 release-check:
 	@$(MAKE) ensure-up
 	@$(MAKE) check-no-cursor-coauthor
@@ -110,6 +114,7 @@ release-check:
 	@$(MAKE) cs-check
 	@$(MAKE) rector-dry
 	@$(MAKE) phpstan
+	@$(MAKE) igor
 	@$(MAKE) test-coverage
 	@$(MAKE) test-matrix
 

@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed (tooling)
+
+- `nowo-tech/phpstan-frankenphp` (classic + worker rulesets, REQ-CS-005) and `igor-php/igor-php` (REQ-CS-008, `composer igor`, `make igor`, CI step, `release-check`) are require-dev; the intentional process-wide state of the facade, the error handlers and the ingest-path cache is a justified PHPStan ignore list and Igor baseline.
+- `tests/Unit/WorkerRequestLoopTest.php`: 2,000 requests on one client with `reset()` between them, no state leaks and memory drift under 1 MiB (REQ-RUNTIME-002); `docs/FRANKENPHP-WORKER-AUDIT.md`. No change to `src/`.
+
 ### Documentation
 
 - Org scaffold (REQ compliance sweep 2026-11-16): `CODE_OF_CONDUCT.md`, docs (SECURITY with threat model and release checklist, ENGRAM, SPEC-DRIVEN-DEVELOPMENT, SPEC-KIT, PSR, tables of contents), the security policy moved to `.github/SECURITY.md`, Spec Kit baseline `specs/001-baseline` (49/49 files), README badges / Found this useful / canonical Documentation / Tests and coverage, `.cursor` rules + MCP, issue and PR templates, Copilot instructions, PR lint, stale and sync-releases workflows; `release-check` gains `check-open-prs`, `composer-sync` and `cs-fix`. No change to `src/`.

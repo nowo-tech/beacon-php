@@ -1,6 +1,24 @@
 # Upgrading
 
+## Table of contents
+
+- [Unreleased](#unreleased)
+- [To 0.3.0](#to-030)
+- [To 0.3.0](#to-030-1)
+  - [BeaconBundle](#beaconbundle)
+- [To 0.2.0](#to-020)
+- [To 0.1.0](#to-010)
+  - [Coming from BeaconBundle](#coming-from-beaconbundle)
+
 ## Unreleased
+
+## To 0.3.0
+
+From **0.2.0**:
+
+```bash
+composer update nowo-tech/beacon-php
+```
 
 ## To 0.3.0
 

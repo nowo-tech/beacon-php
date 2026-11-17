@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-17
+
 ### BREAKING (0.3.0)
 
 - REQ-PHP-001: `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and `Dsn\InvalidDsnException` are now `final`. Every other public class was already `final` or is an interface. Code that extends one of them must switch to composition (see UPGRADING). BeaconBundle extends all six and must be migrated before it can require `^0.3`: `Scope\Scope`, `Instrumentation\SpanBuffer`, `Breadcrumb\BreadcrumbBuffer` and `Trace\TraceIdProvider` (each only adds Symfony's `ResetInterface`), `Dsn\BeaconDsn extends Dsn` and `Dsn\InvalidBeaconDsnException extends InvalidDsnException`. The migration path is in UPGRADING ("BeaconBundle").

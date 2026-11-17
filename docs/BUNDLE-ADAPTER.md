@@ -47,10 +47,9 @@ beacon-js uses the same ingest with a `length` item header and `sdk` blocks; Bea
 ## Adapter plan (BeaconBundle minor, no behaviour change)
 
 1. `composer.json`: `"nowo-tech/beacon-php": "^0.1"` (or `^1.0` once tagged).
-2. Value objects extend the core classes (they are non-final for this):
-   `BeaconDsn extends Nowo\Beacon\Dsn\Dsn`, `InvalidBeaconDsnException extends InvalidDsnException`,
-   `Scope extends Nowo\Beacon\Scope\Scope implements ResetInterface`, same for `BreadcrumbBuffer`, `TraceIdProvider`,
-   `SpanBuffer`. `BeaconDsnParser::parse()` delegates to `DsnParser` and re-wraps the result / exception.
+2. Value objects: from 0.3.0 the core `Scope`, `Dsn`, `SpanBuffer`, `BreadcrumbBuffer`, `TraceIdProvider` and
+   `InvalidDsnException` are `final`. Wrap them (composition) instead of extending; `BeaconDsnParser::parse()`
+   delegates to `DsnParser` and re-wraps the result / exception. With `^0.1` / `^0.2` the old subclasses still work.
 3. `Support\SensitiveValueRedactor`, `Support\FrameVarsSerializer`, `Context\DatabaseExceptionContext`: static
    facades forwarding to `Nowo\Beacon\Scrubber\*` / `Nowo\Beacon\Context\*` (identical rules), or `class_alias`.
 4. `Envelope\EnvelopeBuilder`: keeps its constructor; builds a core `EnvelopeBuilder` with

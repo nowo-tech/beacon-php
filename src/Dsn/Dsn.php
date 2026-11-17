@@ -21,7 +21,7 @@ use function is_int;
  *
  * Not final so that framework adapters (BeaconBundle's `BeaconDsn`) can extend it and keep their own type name.
  */
-class Dsn
+final class Dsn
 {
     private readonly string $projectId;
 

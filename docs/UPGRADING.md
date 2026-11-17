@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## To 0.3.0
+
+**Breaking:** `Nowo\Beacon\Scope\Scope`, `Dsn\Dsn`, `Dsn\InvalidDsnException`, `Span\SpanBuffer`, `Breadcrumb\BreadcrumbBuffer` and `Trace\TraceIdProvider` are `final`.
+
+- Do not extend them. Wrap the instance and delegate (composition), for example a `MyDsn` that holds a `Dsn` and exposes extra methods.
+- To customise behaviour, use the interfaces and extension points that exist: `ClientInterface`, `TransportInterface`, `RequestContextProviderInterface`, `UserContextProviderInterface`, `LifecycleInterface`, `BeaconExceptionInterface` (catch or implement it instead of extending `InvalidDsnException`).
+- Mocking in tests: build a real instance (they have no I/O) or mock the interface your code depends on.
+
 ## To 0.2.0
 
 From **0.1.0**:

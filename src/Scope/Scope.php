@@ -21,7 +21,7 @@ use function trim;
  * One instance per {@see Client}; call {@see reset()} between requests or jobs of a long-running worker.
  * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
-class Scope
+final class Scope
 {
     public const MAX_TAGS = 32;
 

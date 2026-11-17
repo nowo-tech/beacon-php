@@ -15,7 +15,7 @@ use function trim;
  *
  * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
-class TraceIdProvider
+final class TraceIdProvider
 {
     public const HEADER = 'X-Beacon-Trace-Id';
 

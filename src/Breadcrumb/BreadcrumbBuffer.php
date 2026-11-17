@@ -13,7 +13,7 @@ use function microtime;
  *
  * Not final so that framework adapters can extend it (BeaconBundle adds Symfony's `ResetInterface`).
  */
-class BreadcrumbBuffer
+final class BreadcrumbBuffer
 {
     public const MAX_ITEMS = 50;
 

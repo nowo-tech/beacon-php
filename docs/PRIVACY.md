@@ -53,7 +53,7 @@ Two layers, both before `before_send`:
 1. **EnvelopeBuilder** (always, identical to BeaconBundle): messages and exception values lose PEM private keys, URL
    passwords, JWTs, `Bearer` / `Basic` tokens, Stripe / AWS / GitHub / Slack / Google / LLM-provider keys and
    `password=…` / `"api_key": "…"` / `'pass' => '…'` pairs, Beacon worker keys and Luhn-valid card numbers; text
-   longer than 64 KiB is cut first; URLs and the referer lose userinfo and secret-like query values (`token`,
+   longer than 64 KiB is cut first, dropping the word that straddles the cut; URLs and the referer lose userinfo and secret-like query values (`token`,
    `api_key`, `signature`, `sig`, `code`, `hash`, `key`, `reset`, `sid`, …); SQL in `contexts.db` has its string
    literals replaced by `'?'`; Monolog context and frame vars are redacted by key. Redaction fails closed: when PCRE
    fails (backtrack or JIT limit), the whole text becomes `[Filtered: redaction failed]` and the key counts as

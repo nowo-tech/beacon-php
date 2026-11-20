@@ -28,6 +28,7 @@ use function str_contains;
 use function str_repeat;
 use function strlen;
 use function strrpos;
+use function strtoupper;
 use function substr;
 
 final class SensitiveValueRedactorTest extends TestCase
@@ -317,12 +318,16 @@ final class SensitiveValueRedactorTest extends TestCase
 
     public function testLongMessagesAreCutOnAUtf8BoundaryAndTheTailDropped(): void
     {
-        $tail    = 'Fk' . bin2hex(random_bytes(8));
-        $message = str_repeat('a', SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 1) . 'é' . $tail;
-        $out     = SensitiveValueRedactor::redactMessage($message);
+        $tail = 'Fk' . bin2hex(random_bytes(8));
+        $max  = SensitiveValueRedactor::MAX_MESSAGE_LENGTH;
 
-        self::assertSame(str_repeat('a', SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 1) . SensitiveValueRedactor::TRUNCATED, $out);
-        self::assertSame($message = str_repeat('b', SensitiveValueRedactor::MAX_MESSAGE_LENGTH), SensitiveValueRedactor::redactMessage($message));
+        // The cut falls inside a 64 KiB run: the last 4 KiB of the head are dropped too.
+        self::assertSame(str_repeat('a', $max - 4096) . SensitiveValueRedactor::TRUNCATED, SensitiveValueRedactor::redactMessage(str_repeat('a', $max - 1) . 'é' . $tail));
+        // The cut falls inside a word: the word is dropped, up to the whitespace before it.
+        self::assertSame(str_repeat('a', $max - 10) . ' ' . SensitiveValueRedactor::TRUNCATED, SensitiveValueRedactor::redactMessage(str_repeat('a', $max - 10) . ' ' . str_repeat('é', 20) . $tail));
+        // The cut falls on whitespace: nothing straddles it, the head is kept whole.
+        self::assertSame(str_repeat('a', $max) . SensitiveValueRedactor::TRUNCATED, SensitiveValueRedactor::redactMessage(str_repeat('a', $max) . ' ' . $tail));
+        self::assertSame($message = str_repeat('b', $max), SensitiveValueRedactor::redactMessage($message));
     }
 
     public function testRedactValueSummarisesStringablesAndResources(): void
@@ -411,10 +416,85 @@ final class SensitiveValueRedactorTest extends TestCase
         $tail = 'Fk' . bin2hex(random_bytes(8));
         $out  = SensitiveValueRedactor::redactMessage(str_repeat('a', 100) . str_repeat("\x80", SensitiveValueRedactor::MAX_MESSAGE_LENGTH) . $tail);
 
-        // The cut moves back at most three bytes: a run of continuation bytes is not dropped down to the start.
-        self::assertSame(SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 3 + strlen(SensitiveValueRedactor::TRUNCATED), strlen($out));
+        // 4 KiB of the straddling run dropped; the end then moves back at most three bytes, not down to the start.
+        self::assertSame(SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 4096 - 3 + strlen(SensitiveValueRedactor::TRUNCATED), strlen($out));
         self::assertStringEndsWith("\x80" . SensitiveValueRedactor::TRUNCATED, $out);
         self::assertStringNotContainsString($tail, $out);
+    }
+
+    /**
+     * Audit XF-1: a secret that straddles the 64 KiB cut must not survive in part. Every sample is moved across the
+     * cut at every offset.
+     */
+    public function testSecretsStraddlingTheCutAreDroppedAtEveryOffset(): void
+    {
+        $max  = SensitiveValueRedactor::MAX_MESSAGE_LENGTH;
+        $core = bin2hex(random_bytes(20));
+        $a    = substr($core, 0, 20);
+        $b    = substr($core, 20);
+
+        $samples = [
+            'mysql://root:' . $a . '@db/app',
+            'AIza' . $a . substr($b, 0, 15),
+            'ghp_' . $a . $b,
+            'AKIA' . strtoupper(substr($a, 0, 16)),
+            'eyJ' . $a . '.eyJ' . $b . '.' . $a,
+            'sk_live_' . $a,
+            'github_pat_' . $a . $b,
+            'xoxb-' . $a,
+            'sk-ant-' . $a,
+            'bwk_' . $a,
+            'Bearer ' . $a,
+            'password=' . $a,
+            'password="' . $a . ' ' . $b . '"',
+            "'token' => '" . $a . ' ' . $b . "'",
+            "-----BEGIN PRIVATE KEY-----\n" . $a . "\n" . $b . "\n-----END PRIVATE KEY-----",
+        ];
+        $filler = str_repeat('lorem ', intdiv($max, 6) + 1);
+
+        foreach ($samples as $sample) {
+            for ($offset = 1, $length = strlen($sample); $offset < $length; ++$offset) {
+                $out = SensitiveValueRedactor::redactMessage(substr($filler, 0, $max - $offset - 1) . ' ' . $sample . ' tail');
+
+                foreach ([$a, $b] as $secret) {
+                    for ($i = 0; $i + 6 <= strlen($secret); ++$i) {
+                        self::assertStringNotContainsString(substr($secret, $i, 6), substr($out, $max - 4200), $sample . ' @' . $offset);
+                    }
+                }
+            }
+        }
+    }
+
+    public function testUnclosedQuotedValuesAreFilteredToTheEnd(): void
+    {
+        self::assertSame('{"password": "[Filtered]', SensitiveValueRedactor::redactMessage('{"password": "two words'));
+        self::assertSame("['token' => '[Filtered]", SensitiveValueRedactor::redactMessage("['token' => 'two words"));
+        self::assertSame('{"password": "[Filtered]', SensitiveValueRedactor::redactMessage('{"password": "ends \\'));
+    }
+
+    /**
+     * Audit XF-2: a `[Filtered]` left by an earlier rule inside a value does not stop the name=value rule.
+     */
+    public function testRestOfAValueAfterAnEarlierFilterIsFiltered(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+
+        self::assertSame('password=[Filtered] ok', SensitiveValueRedactor::redactMessage('password=sk_live_' . bin2hex(random_bytes(8)) . '.Z' . $secret . ' ok'));
+        // `]` ends an unquoted value; the `[` inside it does not.
+        self::assertSame('password=[Filtered]] ok', SensitiveValueRedactor::redactMessage('password=ab[' . $secret . '] ok'));
+        // `=>` is one separator: a filtered `'…' => '[Filtered]'` pair is not filtered again from its `=`.
+        self::assertSame("['password' => '[Filtered]', 'user' => 'app']", SensitiveValueRedactor::redactMessage("['password' => '" . $secret . "', 'user' => 'app']"));
+        self::assertSame('password=[Filtered], ok', SensitiveValueRedactor::redactMessage('password=[Filtered], ok'));
+    }
+
+    /**
+     * Audit XF-3: URI userinfo whose password contains `@`.
+     */
+    public function testUserinfoPasswordWithAtSigns(): void
+    {
+        self::assertSame('mysql://[Filtered]@db/app', SensitiveValueRedactor::redactValue('mysql://root:p@ss@db/app'));
+        self::assertSame('mysql://[Filtered]@db/app?x=1', SensitiveValueRedactor::redactUrl('mysql://root:p@s@s@db/app?x=1'));
+        self::assertSame('https://demo.test/a@b', SensitiveValueRedactor::redactValue('https://demo.test/a@b'));
     }
 
     /**

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Nowo\Beacon\Scope;
 
 use Nowo\Beacon\Client;
+use Nowo\Beacon\Scrubber\SensitiveValueRedactor;
 
 use function count;
 use function is_bool;
 use function is_float;
 use function is_int;
 use function is_string;
+use function mb_strlen;
 use function mb_substr;
 use function trim;
 
@@ -168,7 +170,13 @@ final class Scope
     private function normalizeValue(mixed $value): ?string
     {
         if (is_string($value) || is_int($value) || is_float($value)) {
-            return mb_substr((string) $value, 0, self::MAX_VALUE_LENGTH);
+            $value = (string) $value;
+            if (mb_strlen($value) <= self::MAX_VALUE_LENGTH) {
+                return $value;
+            }
+
+            // Redact BEFORE the cut: a secret cut in half no longer matches its pattern.
+            return mb_substr(SensitiveValueRedactor::redactMessage($value), 0, self::MAX_VALUE_LENGTH);
         }
 
         if (is_bool($value)) {

@@ -11,12 +11,14 @@ use function array_keys;
 use function array_values;
 use function explode;
 use function implode;
+use function in_array;
 use function is_array;
 use function is_bool;
 use function is_float;
 use function is_int;
 use function is_object;
 use function is_string;
+use function max;
 use function ord;
 use function preg_last_error;
 use function preg_match;
@@ -73,6 +75,9 @@ final class SensitiveValueRedactor
     /** Start of a secret name: a non-alphanumeric (or the start) before it, or a camelCase hump (`dbPassword`, `apiToken`, `myAPIToken`). */
     private const NAME_START = '(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])))';
 
+    /** A value that is exactly `[Filtered]` (an earlier rule already filtered all of it) is left alone. */
+    private const NOT_FILTERED_ALREADY = '(?!\[Filtered\](?:[\s"\'&,}\]]|\z))';
+
     /** End marker of a PEM private key. */
     private const PEM_END = '-----END [A-Z ]{0,32}?PRIVATE KEY-----';
 
@@ -102,19 +107,23 @@ final class SensitiveValueRedactor
         '/(?<![A-Za-z0-9])bwk_[A-Za-z0-9_-]{20,}+/' => self::FILTERED,
         // name=value / name: value / 'name' => 'value' / "name": "value with spaces". The name may be part of a
         // longer identifier (`DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, `beacon_secret`, `smtp_pass`); short names
-        // (`pass`, `pwd`, `pin`, `otp`, `cvv`) must end there. Quoted values are filtered whole (quotes kept);
-        // unquoted values, and a quoted value whose closing quote is missing (a cut message), run to whitespace, a
-        // quote, `&`, `,`, `}` or `]`.
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+")(?:[^"\\\\]++|\\\\.)*+"/i'               => '$1' . self::FILTERED . '"',
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+\')(?:[^\'\\\\]++|\\\\.)*+\'/i'            => '$1' . self::FILTERED . "'",
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+["\']?+)(?!\[Filtered\])[^\s"\'&,}\]]++/i' => '$1' . self::FILTERED,
+        // (`pass`, `pwd`, `pin`, `otp`, `cvv`) must end there. Quoted values are filtered whole (quotes kept); a
+        // quoted value whose closing quote is missing is filtered to the end of the text. Unquoted values run to
+        // whitespace, a quote, `&`, `,`, `}` or `]`; a `[Filtered]` left inside them by an earlier rule does not end
+        // them, so the rest of the value is filtered too.
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+")(?:[^"\\\\]++|\\\\.?)*+("|\z)/i'                                                   => '$1' . self::FILTERED . '$2',
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+\')(?:[^\'\\\\]++|\\\\.?)*+(\'|\z)/i'                                                => '$1' . self::FILTERED . '$2',
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+["\']?+)' . self::NOT_FILTERED_ALREADY . '(?:\[Filtered\]|[^\s"\'&,}\]\[]++|\[)++/i' => '$1' . self::FILTERED,
     ];
 
     /** Payment card numbers: Amex (15 digits) and Visa / Mastercard / Discover prefixes (15–19 digits); Luhn checked. */
     private const CARD_PATTERN = '/(?<![\d-])(?:3[47](?:[ -]?\d){13}|(?:4|5[1-5]|2[2-7]|6)(?:[ -]?\d){14,18})(?![\d-])/';
 
-    /** `scheme://userinfo@` at the start of a string. */
-    private const URI_USERINFO = '#^([a-z][a-z0-9+.-]*+://)[^/@]++@#i';
+    /** `scheme://userinfo@` at the start of a string; the password may contain `@` (up to the last `@` before `/`). */
+    private const URI_USERINFO = '#^([a-z][a-z0-9+.-]*+://)(?:[^/@\s]*+@)++#i';
+
+    /** Longest trailing run of non-whitespace bytes dropped at a cut (see {@see dropStraddlingRun()}). */
+    private const STRADDLE_LIMIT = 4096;
 
     /**
      * Extra query parameter names that carry one-time credentials in URLs only: Symfony login links
@@ -309,8 +318,8 @@ final class SensitiveValueRedactor
     }
 
     /**
-     * Cut free text at {@see MAX_MESSAGE_LENGTH} bytes. The cut moves back at most three bytes so that a valid UTF-8
-     * character is not split; invalid UTF-8 is cut where it is.
+     * Cut free text at {@see MAX_MESSAGE_LENGTH} bytes, dropping the token that straddles the cut
+     * ({@see dropStraddlingRun()}): a secret cut in half no longer matches its pattern, so its head must not be kept.
      */
     private static function truncate(string $message): string
     {
@@ -318,12 +327,42 @@ final class SensitiveValueRedactor
             return $message;
         }
 
-        $cut = self::MAX_MESSAGE_LENGTH;
-        for ($step = 0; $step < 3 && (ord($message[$cut]) & 0xC0) === 0x80; ++$step) {
-            --$cut;
+        return self::dropStraddlingRun(substr($message, 0, self::MAX_MESSAGE_LENGTH), $message[self::MAX_MESSAGE_LENGTH]) . self::TRUNCATED;
+    }
+
+    /**
+     * Prepare the head of a cut text for redaction. When the cut falls inside a run of non-whitespace bytes (`$next`,
+     * the first byte cut off, is not whitespace), that run is dropped from the head: a token, URL, JWT or key cut in
+     * half no longer matches its pattern. At most {@see STRADDLE_LIMIT} bytes are scanned; a run longer than that is
+     * dropped over that length only. The end never splits a valid UTF-8 character (invalid UTF-8 is cut as is).
+     */
+    private static function dropStraddlingRun(string $head, string $next): string
+    {
+        if ($next === '' || self::isWhitespace($next[0])) {
+            return $head;
         }
 
-        return substr($message, 0, $cut) . self::TRUNCATED;
+        $length = strlen($head);
+        $stop   = max(0, $length - self::STRADDLE_LIMIT);
+        $end    = $stop;
+        for ($i = $length - 1; $i >= $stop; --$i) {
+            if (self::isWhitespace($head[$i])) {
+                $end = $i + 1;
+
+                break;
+            }
+        }
+
+        for ($step = 0; $step < 3 && $end > 0 && $end < $length && (ord($head[$end]) & 0xC0) === 0x80; ++$step) {
+            --$end;
+        }
+
+        return substr($head, 0, $end);
+    }
+
+    private static function isWhitespace(string $byte): bool
+    {
+        return in_array($byte, [' ', "\n", "\t", "\r", "\f", "\v"], true);
     }
 
     private static function passesLuhn(string $match): bool

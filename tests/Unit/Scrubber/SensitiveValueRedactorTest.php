@@ -4,10 +4,31 @@ declare(strict_types=1);
 
 namespace Nowo\Beacon\Tests\Unit\Scrubber;
 
+use Nowo\Beacon\Context\DatabaseExceptionContext;
+use Nowo\Beacon\Scrubber\IpStripper;
+use Nowo\Beacon\Scrubber\PayloadScrubber;
 use Nowo\Beacon\Scrubber\SensitiveValueRedactor;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use stdClass;
 use Stringable;
+
+use function array_keys;
+use function bin2hex;
+use function fclose;
+use function fopen;
+use function ini_set;
+use function intdiv;
+use function json_encode;
+use function microtime;
+use function random_bytes;
+use function str_contains;
+use function str_repeat;
+use function strlen;
+use function strrpos;
+use function substr;
 
 final class SensitiveValueRedactorTest extends TestCase
 {
@@ -87,9 +108,11 @@ final class SensitiveValueRedactorTest extends TestCase
 
     public function testUrlOnlyParameterNamesAreNotFilteredInMaps(): void
     {
-        $out = SensitiveValueRedactor::redactMap(['hash' => 'abc', 'code' => 'E42', 'sig' => 'v1', 'signature' => 'Jane']);
+        $out = SensitiveValueRedactor::redactMap(['hash' => 'abc', 'code' => 'E42', 'sig' => 'v1', 'key' => 'k', 'reset' => 'r']);
 
-        self::assertSame(['hash' => 'abc', 'code' => 'E42', 'sig' => 'v1', 'signature' => 'Jane'], $out);
+        self::assertSame(['hash' => 'abc', 'code' => 'E42', 'sig' => 'v1', 'key' => 'k', 'reset' => 'r'], $out);
+        // `signature` is a credential key everywhere (BeaconBundle 1.19.2 rule).
+        self::assertSame(['signature' => SensitiveValueRedactor::FILTERED], SensitiveValueRedactor::redactMap(['signature' => 'Jane']));
     }
 
     public function testRedactMessageReplacesCredentialShapedSubstrings(): void
@@ -112,6 +135,196 @@ final class SensitiveValueRedactorTest extends TestCase
         self::assertSame(['note' => 'sent Bearer [Filtered]'], SensitiveValueRedactor::redactMap(['note' => 'sent Bearer abcdefgh12345']));
     }
 
+    /**
+     * SEC-004 Appendix CH, L1: inputs that leaked before 1.19.2 (all values fake).
+     *
+     * @return iterable<string, array{string, list<string>}>
+     */
+    public static function leakingMessages(): iterable
+    {
+        // Secret-shaped values are generated at runtime so no credential-looking literal is committed.
+        $v = static fn (string $prefix = 'Fk'): string => $prefix . bin2hex(random_bytes(8));
+        $a = $v();
+        yield 'env-style DB_PASSWORD' => ['Failed to boot: DB_PASSWORD=' . $a . ' is wrong', [$a]];
+        $a = $v();
+        yield 'env-style AWS_SECRET_ACCESS_KEY' => ['AWS_SECRET_ACCESS_KEY=' . $a . ' rejected', [$a]];
+        $a = $v();
+        yield 'env-style STRIPE_API_KEY' => ['STRIPE_API_KEY=' . $a . ' invalid', [$a]];
+        $a = $v();
+        yield 'PHP array export' => ["Options were ['password' => '" . $a . "', 'user' => 'app']", [$a]];
+        $a = $v('horse');
+        $b = $v('battery');
+        yield 'JSON pair with spaces' => ['Payload {"password": "correct ' . $a . ' ' . $b . '"}', [$a, $b]];
+        $a = $v();
+        yield 'password with ;' => ['login failed for password=Fa;' . $a, [$a]];
+        $a = $v();
+        yield 'passphrase' => ['passphrase=' . $a, [$a]];
+        $a = $v();
+        yield 'pass=' => ['smtp pass=' . $a . ' refused', [$a]];
+        $a = $v();
+        yield 'pwd / pin / otp / cvv' => ['pwd=' . $a . ' pin: 4321 otp=987654 cvv=123', [$a, '4321', '987654', '=123']];
+        $a = $v();
+        yield 'URL password with /' => ['Cannot connect to mysql://app:Fk/' . $a . '@db.internal:3306/app', [$a]];
+        $a = $v();
+        yield 'URL password with @' => ['Cannot connect to redis://default:Fk@' . $a . '@cache:6379', [$a]];
+        $a = $v();
+        yield 'Beacon DSN' => ['Bad DSN https://pubFAKEkey:' . $a . '@errors.example/1', [$a]];
+        $a = 'bwk_' . bin2hex(random_bytes(24));
+        yield 'Beacon worker key' => ['Header was ' . $a, [$a]];
+        $a = $v();
+        yield 'X-Beacon-Auth value' => ['Beacon beacon_key=pubFAKE, beacon_secret=' . $a, [$a]];
+        // Re-verification of PR #28: N1 regression (filtered on 1.19.1) and camelCase names.
+        $a = $v();
+        yield 'clientSecret=' => ['OAuth error, clientSecret=' . $a . ' rejected', [$a]];
+        $a = $v();
+        yield 'clientsecret:' => ['clientsecret: ' . $a, [$a]];
+        $a = $v();
+        yield 'JSON clientSecret' => ['Body {"clientSecret":"' . $a . '"}', [$a]];
+        $a = $v();
+        yield 'camelCase dbPassword' => ['Config dbPassword=' . $a, [$a]];
+        $a = $v();
+        yield 'camelCase JSON apiToken' => ['Body {"apiToken":"' . $a . '"}', [$a]];
+        $a = $v();
+        yield 'URL password, empty user' => ['Cannot connect to redis://:' . $a . '@cache:6379', [$a]];
+        $a = $v();
+        yield 'JSON value with an escaped quote' => ['Body {"password":"ab\\"' . $a . '"}', [$a]];
+        yield 'Amex, 15 digits' => ['Card 378282246310005 declined', ['378282246310005']];
+        $a = $v();
+        yield 'all-caps run myAPIToken' => ['Config myAPIToken=' . $a, [$a]];
+    }
+
+    /**
+     * @param list<string> $secrets
+     */
+    #[DataProvider('leakingMessages')]
+    public function testRedactMessageCoversEnvStyleQuotedAndBeaconCredentials(string $message, array $secrets): void
+    {
+        $out = SensitiveValueRedactor::redactMessage($message);
+
+        foreach ($secrets as $secret) {
+            self::assertFalse(str_contains($out, $secret), $secret . ' leaked in ' . $out);
+        }
+        self::assertStringContainsString(SensitiveValueRedactor::FILTERED, $out);
+    }
+
+    public function testRedactMessageKeepsHarmlessText(): void
+    {
+        foreach ([
+            'passenger=Bob shipping=fast discard=yes',
+            'GET https://example.com:8443/users/@me failed',
+            'Order 42 failed: stock=0',
+            'beacon_key=pubFAKE is the public key',
+        ] as $message) {
+            self::assertSame($message, SensitiveValueRedactor::redactMessage($message));
+        }
+
+        self::assertSame('Cannot connect to postgresql://app:[Filtered]@db:5432/app', SensitiveValueRedactor::redactMessage('Cannot connect to postgresql://app:FAKEpgpw@db:5432/app'));
+    }
+
+    public function testRedactMessageFiltersLuhnValidCardNumbersOnly(): void
+    {
+        self::assertSame('Charge failed for card [Filtered] cvv=[Filtered]', SensitiveValueRedactor::redactMessage('Charge failed for card 4111111111111111 cvv=123'));
+        self::assertSame('Card [Filtered] declined', SensitiveValueRedactor::redactMessage('Card 5500-0000-0000-0004 declined'));
+        // Not Luhn-valid, or not a card prefix (millisecond timestamps, order ids): kept.
+        foreach (['Order 4111111111111112 failed', 'at 1793553024389 ms', 'id 9111111111111111'] as $message) {
+            self::assertSame($message, SensitiveValueRedactor::redactMessage($message));
+        }
+    }
+
+    public function testRedactMapCoversShortCredentialKeys(): void
+    {
+        $out = SensitiveValueRedactor::redactMap([
+            'db_pass'     => 'FAKE-2', 'pwd' => 'FAKE-3', 'pass' => 'FAKE-4', 'pin' => '4321', 'otp' => '987654', 'cvv' => '123',
+            'card_number' => '4111111111111111', 'iban' => 'ES9121000418450200051332', 'cookie' => 'PHPSESSID=FAKEsess',
+            'session_id'  => 'FAKEsess2', 'signature' => 'FAKEsig', 'private' => 'FAKE-5', 'passphrase' => 'FAKE-6',
+            'passenger'   => 'Bob', 'shipping' => 'fast', 'discard' => 'yes', 'mapping' => 'm',
+            'cardNumber'  => '4111111111111111', 'userPin' => '4321', 'dbPass' => 'FAKE-7', 'creditCard' => 'FAKE-8',
+            'isPinned'    => true, 'PASSENGER' => 'Ann', 'OTPCode' => '987654',
+        ]);
+
+        foreach (['db_pass', 'pwd', 'pass', 'pin', 'otp', 'cvv', 'card_number', 'iban', 'cookie', 'session_id', 'signature', 'private', 'passphrase', 'cardNumber', 'userPin', 'dbPass', 'creditCard', 'OTPCode'] as $key) {
+            self::assertSame(SensitiveValueRedactor::FILTERED, $out[$key], $key);
+        }
+        self::assertSame(['Bob', 'fast', 'yes', 'm', true, 'Ann'], [$out['passenger'], $out['shipping'], $out['discard'], $out['mapping'], $out['isPinned'], $out['PASSENGER']]);
+    }
+
+    public function testRedactQueryStringCoversShortCredentialParameters(): void
+    {
+        $out = SensitiveValueRedactor::redactQueryString('pass=FAKEqp&user=bob&pwd=FAKEqp2&key=FAKEgmapskey&session=FAKEsessq&reset=FAKEreset&sid=FAKEsid&page=2');
+
+        self::assertSame('pass=[Filtered]&user=bob&pwd=[Filtered]&key=[Filtered]&session=[Filtered]&reset=[Filtered]&sid=[Filtered]&page=2', $out);
+        self::assertFalse(str_contains((string) json_encode($out), 'FAKE'));
+    }
+
+    /**
+     * Re-check of PR #28, N4: a huge quoted value after a secret name must not exhaust PCRE and leak the whole message.
+     */
+    public function testHugeQuotedValuesDoNotDisableRedaction(): void
+    {
+        $first  = 'Fk' . bin2hex(random_bytes(8));
+        $second = 'bwk_' . bin2hex(random_bytes(24));
+        $huge   = str_repeat('x', 1 << 20);
+
+        foreach ([
+            'DB_PASSWORD=' . $first . ' cfg {"password":"' . $huge . '"} sent ' . $second,
+            'DB_PASSWORD=' . $first . " cfg ['password' => '" . $huge . "'] sent " . $second,
+            'DB_PASSWORD=' . $first . ' cfg {"password":"' . $huge . ' unterminated, sent ' . $second,
+            'DB_PASSWORD=' . $first . ' -----BEGIN RSA PRIVATE KEY-----' . $huge . ' sent ' . $second,
+            'redis://u:' . $first . str_repeat('@x', 1 << 18) . ' sent ' . $second,
+        ] as $index => $message) {
+            $out = SensitiveValueRedactor::redactMessage($message);
+
+            self::assertNotSame(SensitiveValueRedactor::REDACTION_FAILED, $out, (string) $index);
+            self::assertFalse(str_contains($out, $first), $index . ': first secret leaked');
+            self::assertFalse(str_contains($out, $second), $index . ': second secret leaked');
+        }
+    }
+
+    /**
+     * N4: when PCRE fails (backtrack limit, JIT off so the limit applies), redaction fails closed.
+     */
+    #[RunInSeparateProcess]
+    public function testPcreErrorsFailClosed(): void
+    {
+        ini_set('pcre.jit', '0');
+        ini_set('pcre.backtrack_limit', '1');
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactMessage('DB_PASSWORD=' . $secret . ' and more text'));
+        self::assertSame(['user' => SensitiveValueRedactor::FILTERED], SensitiveValueRedactor::redactMap(['user' => $secret]));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactValue('mysql://app:' . $secret . '@db/app'));
+        self::assertStringNotContainsString($secret, SensitiveValueRedactor::redactQueryString('page=' . $secret));
+    }
+
+    /**
+     * Re-check of PR #28, N5: repeated secret-like names must not make redaction quadratic.
+     */
+    public function testRepeatedSecretNamesRedactInLinearTime(): void
+    {
+        foreach (['aPassword=', 'aPassword ', '_password', 'aToken', '-secret', 'a.'] as $unit) {
+            $first  = 'Fk' . bin2hex(random_bytes(8));
+            $second = 'Fk' . bin2hex(random_bytes(8));
+            $prefix = 'DB_PASSWORD=' . $first . ' ' . str_repeat($unit, intdiv(30000, strlen($unit))) . ' token=' . $second . ' ';
+            $start  = microtime(true);
+            $out    = SensitiveValueRedactor::redactMessage($prefix . str_repeat($unit, intdiv(1 << 20, strlen($unit))));
+
+            self::assertLessThan(1.0, microtime(true) - $start, $unit);
+            self::assertFalse(str_contains($out, $first), $unit . ': first secret leaked');
+            self::assertFalse(str_contains($out, $second), $unit . ': second secret leaked');
+            self::assertStringEndsWith(SensitiveValueRedactor::TRUNCATED, $out);
+        }
+    }
+
+    public function testLongMessagesAreCutOnAUtf8BoundaryAndTheTailDropped(): void
+    {
+        $tail    = 'Fk' . bin2hex(random_bytes(8));
+        $message = str_repeat('a', SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 1) . 'é' . $tail;
+        $out     = SensitiveValueRedactor::redactMessage($message);
+
+        self::assertSame(str_repeat('a', SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 1) . SensitiveValueRedactor::TRUNCATED, $out);
+        self::assertSame($message = str_repeat('b', SensitiveValueRedactor::MAX_MESSAGE_LENGTH), SensitiveValueRedactor::redactMessage($message));
+    }
+
     public function testRedactValueSummarisesStringablesAndResources(): void
     {
         $stringable = new class implements Stringable {
@@ -121,9 +334,191 @@ final class SensitiveValueRedactorTest extends TestCase
             }
         };
         self::assertSame('postgres://[Filtered]@db/x', SensitiveValueRedactor::redactValue($stringable));
+        self::assertSame(['0' => 'a', 'k' => SensitiveValueRedactor::FILTERED], SensitiveValueRedactor::redactValue(['a', 'k' => new class implements Stringable {
+            public function __toString(): string
+            {
+                return '-----BEGIN PRIVATE KEY-----abc';
+            }
+        }]));
 
         $resource = fopen('php://memory', 'r');
         self::assertSame(SensitiveValueRedactor::FILTERED, SensitiveValueRedactor::redactValue($resource));
         fclose($resource);
+    }
+
+    public function testUserinfoUrlsStillGetTheMessagePatterns(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+
+        self::assertSame(
+            'mysql://[Filtered]@db/app?password=[Filtered] Bearer [Filtered]',
+            SensitiveValueRedactor::redactValue('mysql://app:pw@db/app?password=' . $secret . ' Bearer ' . $secret),
+        );
+    }
+
+    public function testPrivateKeyWithoutItsOwnEndMarkerIsFilteredToTheEnd(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+        $out    = SensitiveValueRedactor::redactMessage('key -----BEGIN PRIVATE KEY-----' . $secret . "\n-----END CERTIFICATE-----\n" . $secret);
+
+        self::assertSame('key [Filtered]', $out);
+        self::assertSame(
+            'a [Filtered] b',
+            SensitiveValueRedactor::redactMessage("a -----BEGIN EC PRIVATE KEY-----\n" . $secret . "\n-----END EC PRIVATE KEY----- b"),
+        );
+    }
+
+    public function testSchemesLongerThanThirtyTwoCharactersAreStillRedacted(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+
+        self::assertStringNotContainsString($secret, SensitiveValueRedactor::redactMessage('x ' . str_repeat('a', 40) . '://u:' . $secret . '@host/'));
+        self::assertStringNotContainsString($secret, SensitiveValueRedactor::redactMessage('x 1https://u:' . $secret . '@host/'));
+    }
+
+    /**
+     * The patterns are byte-oriented: invalid UTF-8 never makes PCRE fail, and secrets around invalid bytes are
+     * still redacted.
+     */
+    public function testInvalidUtf8IsRedactedByteWise(): void
+    {
+        $secret  = 'Fk' . bin2hex(random_bytes(8));
+        $invalid = "\xC3\x28\xFF\xFE\x80";
+
+        $out = SensitiveValueRedactor::redactMessage($invalid . ' password=' . $secret . ' ' . $invalid . ' sk_live_' . $secret . $invalid);
+        self::assertSame($invalid . ' password=[Filtered] ' . $invalid . ' [Filtered]' . $invalid, $out);
+
+        $map = SensitiveValueRedactor::redactMap(["k\xFF" => 'token=' . $secret . $invalid . ' ok', "password\xFF" => $invalid]);
+        self::assertSame(["k\xFF" => 'token=[Filtered] ok', "password\xFF" => SensitiveValueRedactor::FILTERED], $map);
+
+        self::assertSame('a=' . $invalid . '&token=[Filtered]', SensitiveValueRedactor::redactQueryString('a=' . $invalid . '&token=' . $secret));
+        self::assertSame('https://[Filtered]@h/' . $invalid, SensitiveValueRedactor::redactUrl("https://u:\xFF" . $secret . '@h/' . $invalid));
+    }
+
+    public function testNoPatternUsesTheUtf8Modifier(): void
+    {
+        $constants = (new ReflectionClass(SensitiveValueRedactor::class))->getConstants();
+        $patterns  = [...array_keys($constants['SECRET_PATTERNS']), $constants['SENSITIVE_KEY'], $constants['CARD_PATTERN'], $constants['URI_USERINFO'], $constants['SENSITIVE_URL_PARAMETER']];
+
+        foreach ($patterns as $pattern) {
+            self::assertIsString($pattern);
+            self::assertStringNotContainsString('u', substr($pattern, (int) strrpos($pattern, $pattern[0]) + 1), $pattern);
+        }
+    }
+
+    public function testInvalidUtf8AtTheCutIsCutWhereItIs(): void
+    {
+        $tail = 'Fk' . bin2hex(random_bytes(8));
+        $out  = SensitiveValueRedactor::redactMessage(str_repeat('a', 100) . str_repeat("\x80", SensitiveValueRedactor::MAX_MESSAGE_LENGTH) . $tail);
+
+        // The cut moves back at most three bytes: a run of continuation bytes is not dropped down to the start.
+        self::assertSame(SensitiveValueRedactor::MAX_MESSAGE_LENGTH - 3 + strlen(SensitiveValueRedactor::TRUNCATED), strlen($out));
+        self::assertStringEndsWith("\x80" . SensitiveValueRedactor::TRUNCATED, $out);
+        self::assertStringNotContainsString($tail, $out);
+    }
+
+    /**
+     * Worst-case shapes at the maximum length redact with the default PCRE limits, JIT on.
+     */
+    public function testWorstCaseInputsAtTheMaximumLengthDoNotHitTheDefaultLimits(): void
+    {
+        $this->assertWorstCaseInputsRedact();
+    }
+
+    /**
+     * The same without JIT (pcre.jit is read when a pattern is compiled, so a fresh process is needed).
+     */
+    #[RunInSeparateProcess]
+    public function testWorstCaseInputsAtTheMaximumLengthDoNotHitTheDefaultLimitsWithoutJit(): void
+    {
+        ini_set('pcre.jit', '0');
+        $this->assertWorstCaseInputsRedact();
+    }
+
+    /**
+     * Huge messages that hit `pcre.backtrack_limit` (lowered, JIT off so the limit applies): the original text is
+     * never returned, in the redactor and in every other scrubbing step that runs a regex over user data.
+     */
+    #[RunInSeparateProcess]
+    public function testBacktrackLimitFailsClosedEverywhere(): void
+    {
+        ini_set('pcre.jit', '0');
+        ini_set('pcre.backtrack_limit', '1');
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+        $huge   = 'DB_PASSWORD=' . $secret . ' ' . str_repeat('x y ', 1 << 14);
+
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactMessage($huge));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactMessage('password=' . $secret));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactValue($huge));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactUrl('https://u:' . $secret . '@h/'));
+        self::assertTrue(SensitiveValueRedactor::isSensitiveKey('harmless'));
+        self::assertSame(['page' => SensitiveValueRedactor::FILTERED], SensitiveValueRedactor::redactMap(['page' => $secret]));
+        self::assertSame('page=[Filtered]', SensitiveValueRedactor::redactQueryString('page=' . $secret));
+
+        self::assertTrue(PayloadScrubber::isSensitiveKey('harmless'));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, PayloadScrubber::maskCards('card 4111111111111111 ' . $secret));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, PayloadScrubber::scrubText($huge));
+        self::assertSame(SensitiveValueRedactor::REDACTION_FAILED, DatabaseExceptionContext::scrubSql("insert into t values ('" . $secret . "')"));
+        self::assertTrue(IpStripper::isClientAddressHeader('X-Harmless'));
+
+        // Back to the default limit in the same process: the same calls redact normally again.
+        ini_set('pcre.backtrack_limit', '1000000');
+        self::assertFalse(SensitiveValueRedactor::isSensitiveKey('harmless'));
+        self::assertFalse(IpStripper::isClientAddressHeader('X-Harmless'));
+        self::assertSame('password=[Filtered]', SensitiveValueRedactor::redactMessage('password=' . $secret));
+    }
+
+    /**
+     * Every secret pattern still redacts after the possessive rewrite (one sample per rule).
+     */
+    public function testEverySecretPatternStillRedacts(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(16));
+
+        foreach ([
+            '-----BEGIN RSA PRIVATE KEY-----' . $secret . '-----END RSA PRIVATE KEY-----',
+            'smtp://user:' . $secret . '@mail',
+            'eyJ' . $secret . '.eyJ' . $secret . '.' . $secret,
+            'Basic ' . $secret,
+            'rk_test_' . $secret,
+            'github_pat_' . $secret,
+            'xoxp-' . $secret,
+            'sk-' . $secret,
+            'bwk_' . $secret,
+            'api-key: ' . $secret,
+            'client_secret="' . $secret . '"',
+            "'token' => '" . $secret . "'",
+            'password="' . $secret,
+            "{'pwd': '" . $secret,
+        ] as $message) {
+            self::assertStringNotContainsString($secret, SensitiveValueRedactor::redactMessage('x ' . $message . ' y'), $message);
+        }
+
+        self::assertSame('x [Filtered] y', SensitiveValueRedactor::redactMessage('x ASIAABCDEFGHIJKLMNOP y'));
+        self::assertSame('x [Filtered] y', SensitiveValueRedactor::redactMessage('x ghs_' . str_repeat('a', 36) . ' y'));
+        self::assertSame('x [Filtered] y', SensitiveValueRedactor::redactMessage('x AIza' . str_repeat('b', 35) . ' y'));
+        self::assertSame('ghp_' . str_repeat('a', 36) . '_x', SensitiveValueRedactor::redactMessage('ghp_' . str_repeat('a', 36) . '_x'));
+    }
+
+    private function assertWorstCaseInputsRedact(): void
+    {
+        $length = SensitiveValueRedactor::MAX_MESSAGE_LENGTH;
+        foreach ([
+            '-----BEGIN PRIVATE KEY-----' . str_repeat('-x', $length),
+            str_repeat('-', $length),
+            'redis://u:' . str_repeat('@', $length),
+            str_repeat('a', $length - 10) . '://u:p@h',
+            'password="' . str_repeat('\\"', $length),
+            "password='" . str_repeat("\\'", $length),
+            str_repeat('4 ', $length),
+            str_repeat('aB', $length),
+            'Bearer ' . str_repeat('a', $length),
+            'ghp_' . str_repeat('a', $length) . '_',
+        ] as $index => $message) {
+            self::assertNotSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactMessage($message), (string) $index);
+            self::assertNotSame(SensitiveValueRedactor::REDACTION_FAILED, SensitiveValueRedactor::redactValue($message), (string) $index);
+        }
+        self::assertFalse(IpStripper::isClientAddressHeader(str_repeat('A', 8192)));
+        self::assertNotSame(SensitiveValueRedactor::REDACTION_FAILED, DatabaseExceptionContext::scrubSql("insert into t values ('" . str_repeat('\\\'', 1 << 17) . "')"));
     }
 }

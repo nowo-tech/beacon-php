@@ -13,6 +13,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `Scrubber\SensitiveValueRedactor` fails closed: when a PCRE call fails (backtrack, JIT stack or match limit), the
+  text becomes `SensitiveValueRedactor::REDACTION_FAILED` (`[Filtered: redaction failed]`) and a key counts as
+  sensitive; the original value is never returned. The same applies to `PayloadScrubber::maskCards()` /
+  `isSensitiveKey()`, `DatabaseExceptionContext::scrubSql()` and `IpStripper::isClientAddressHeader()`. Quantifiers
+  that could backtrack are possessive or bounded, and free text is cut at `MAX_MESSAGE_LENGTH` (64 KiB, ` [truncated]`
+  appended, the cut never splits a valid UTF-8 character). Patterns stay byte-oriented, so invalid UTF-8 never makes
+  them fail.
+
+### Changed
+
+- The redaction rules are aligned with BeaconBundle 1.27 (the stricter rule kept where the two differed): more
+  sensitive key names (`passphrase`, `private`, `cookie`, `session`, `signature`, `iban` and whole-token `pass`,
+  `pwd`, `pin`, `otp`, `cvv`, `cvc`, `card`), `NAME=value` pairs inside longer identifiers (`DB_PASSWORD`,
+  `dbPassword`), quoted values filtered whole, Beacon worker keys (`bwk_…`), URL passwords that contain `/` or `@`
+  or have an empty user, Luhn-valid card numbers in messages, and the URL parameters `key`, `reset` and `sid`. A
+  string with URI userinfo also gets the free-text patterns. New public constants: `REDACTION_FAILED`,
+  `MAX_MESSAGE_LENGTH`, `TRUNCATED`.
+
 ## [0.3.1] - 2026-11-17
 
 ### Fixed

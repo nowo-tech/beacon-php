@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\Beacon\Context;
 
+use Nowo\Beacon\Scrubber\SensitiveValueRedactor;
 use PDOException;
 use Throwable;
 
@@ -13,11 +14,14 @@ use function is_object;
 use function is_string;
 use function mb_substr;
 use function method_exists;
+use function preg_last_error;
 use function preg_match;
 use function preg_replace;
 use function strtolower;
 use function strtoupper;
 use function trim;
+
+use const PREG_NO_ERROR;
 
 /**
  * Best-effort SQL/SQLSTATE facts from a throwable chain for Envelope {@code contexts.db}.
@@ -134,8 +138,13 @@ final class DatabaseExceptionContext
     {
         $collapsed = preg_replace('/\s+/', ' ', trim($sql));
         $sql       = is_string($collapsed) ? $collapsed : trim($sql);
-        $scrubbed  = preg_replace("/'([^'\\\\]|\\\\.)*'/", "'?'", $sql);
-        $sql       = is_string($scrubbed) ? $scrubbed : $sql;
+        // Possessive: a long literal cannot hit the backtrack / JIT stack limit. On a PCRE error the SQL is dropped
+        // (fail closed): its literals are never sent unscrubbed.
+        $scrubbed = preg_replace("/'(?:[^'\\\\]++|\\\\.)*+'/", "'?'", $sql);
+        if ($scrubbed === null || preg_last_error() !== PREG_NO_ERROR) {
+            return SensitiveValueRedactor::REDACTION_FAILED;
+        }
+        $sql = $scrubbed;
 
         return mb_substr($sql, 0, self::MAX_SQL_LENGTH);
     }

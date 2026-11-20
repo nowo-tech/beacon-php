@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\Beacon\Scrubber;
 
+use Nowo\Beacon\Envelope\Envelope;
 use Stringable;
 
 use function array_keys;
@@ -16,60 +17,118 @@ use function is_float;
 use function is_int;
 use function is_object;
 use function is_string;
+use function ord;
+use function preg_last_error;
 use function preg_match;
 use function preg_replace;
+use function preg_replace_callback;
 use function rawurlencode;
 use function str_contains;
+use function strlen;
 use function strpos;
 use function strtolower;
 use function substr;
 use function trim;
 use function urldecode;
 
+use const PREG_NO_ERROR;
+
 /**
  * Redacts secret-like keys and credential-shaped values for safe Beacon extras.
  *
- * Identical rules to BeaconBundle's `Support\SensitiveValueRedactor` (envelope byte parity); the broader
- * payload pass lives in {@see PayloadScrubber}.
+ * Same rules as BeaconBundle's `Support\SensitiveValueRedactor` (the stricter rule kept where the two differed); the
+ * broader payload pass lives in {@see PayloadScrubber}.
+ *
+ * Fail closed: when PCRE fails (backtrack / JIT stack / match limit), the text is replaced by
+ * {@see REDACTION_FAILED} and a key counts as sensitive; the original value is never handed back. Every quantifier
+ * that could backtrack is possessive or bounded, and free text is cut at {@see MAX_MESSAGE_LENGTH} bytes first.
+ *
+ * Invalid UTF-8: the patterns are byte-oriented on purpose (no `u` modifier), so invalid UTF-8 never makes PCRE fail
+ * and secrets next to invalid bytes are still redacted. The cut at {@see MAX_MESSAGE_LENGTH} does not split a valid
+ * multibyte character. The JSON encoder of {@see Envelope} substitutes invalid sequences.
  */
 final class SensitiveValueRedactor
 {
     public const FILTERED = '[Filtered]';
 
-    private const SENSITIVE_KEY = '/(?:password|passwd|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|auth|credential|bearer|dsn|connection[_-]?string|salt|nonce)/i';
+    /** Returned instead of the original text when a PCRE error makes redaction fail (fail closed). */
+    public const REDACTION_FAILED = '[Filtered: redaction failed]';
+
+    /** Longest free text redacted, in bytes; the rest is dropped (never returned unredacted). */
+    public const MAX_MESSAGE_LENGTH = 65536;
+
+    /** Appended to a message cut at {@see MAX_MESSAGE_LENGTH}. */
+    public const TRUNCATED = ' [truncated]';
+
+    /**
+     * Sensitive key names. Long words match anywhere (`db_password`, `X-Api-Key`, `session_id`); short ones (`pass`,
+     * `pwd`, `pin`, `otp`, `cvv`, `card`) only as a whole token, delimited by non-alphanumerics or a camelCase hump
+     * (`db_pass`, `card_number`, `cardNumber`, `userPin`), so `passenger`, `shipping`, `isPinned` or `PASSENGER` are kept.
+     */
+    private const SENSITIVE_KEY = '/(?:password|passwd|passphrase|secret|token|api[_-]?key|private|access[_-]?key|auth|credential|bearer|dsn|connection[_-]?string|salt|nonce|cookie|session|signature|iban)|(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])))(?:pass|pwd|pin|otp|cvv|cvc|card)(?:(?![A-Za-z0-9])|(?-i:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])))/i';
+
+    /** Secret-looking names in free text (see {@see SECRET_PATTERNS}). */
+    private const SECRET_NAME = '(?:(?:passw(?:or)?d|passphrase|client[_-]?secret|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[A-Za-z0-9_-]{0,64}+|(?:pass|pwd|pin|otp|cvv|cvc))';
+
+    /** Start of a secret name: a non-alphanumeric (or the start) before it, or a camelCase hump (`dbPassword`, `apiToken`, `myAPIToken`). */
+    private const NAME_START = '(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])))';
+
+    /** End marker of a PEM private key. */
+    private const PEM_END = '-----END [A-Z ]{0,32}?PRIVATE KEY-----';
 
     /**
      * Credential-shaped substrings replaced inside free text (exception and log messages, context strings), the rest
      * of the text kept: PEM private keys, URL passwords, JWTs, bearer / basic tokens, provider keys (Stripe, AWS,
-     * GitHub, Slack, Google, LLM APIs) and `password=…` / `"api_key": "…"` pairs.
+     * GitHub, Slack, Google, LLM APIs), Beacon worker keys and `password=…` / `"api_key": "…"` / `'pass' => '…'` pairs.
      *
      * @var array<string, string> pattern => replacement
      */
     private const SECRET_PATTERNS = [
-        '/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/s'                                            => self::FILTERED,
-        '#\b([a-z][a-z0-9+.-]*://[^\s:/@]+):[^\s@/]+@#i'                                                                            => '$1:' . self::FILTERED . '@',
-        '/\beyJ[\w-]{8,}\.eyJ[\w-]{8,}\.[\w-]{8,}/'                                                                                 => self::FILTERED,
-        '/\b(Bearer|Basic)\s+[\w.~+\/=-]{8,}/i'                                                                                     => '$1 ' . self::FILTERED,
-        '/\b(?:sk|rk|pk)_(?:live|test)_\w{10,}/'                                                                                    => self::FILTERED,
-        '/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/'                                                                                           => self::FILTERED,
-        '/\bgh[pousr]_[A-Za-z0-9]{30,}\b/'                                                                                          => self::FILTERED,
-        '/\bgithub_pat_\w{30,}/'                                                                                                    => self::FILTERED,
-        '/\bxox[abposr]-[\w-]{10,}/'                                                                                                => self::FILTERED,
-        '/\bAIza[\w-]{35}\b/'                                                                                                       => self::FILTERED,
-        '/\bsk-(?:ant-)?[\w-]{20,}/'                                                                                                => self::FILTERED,
-        '/\b((?:passw(?:or)?d|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret)["\']?\s*[:=]\s*["\']?)[^\s"\'&,;}]+/i' => '$1' . self::FILTERED,
+        // A PEM private key up to its own END marker, or to the end of the text when there is none.
+        '/-----BEGIN [A-Z ]{0,32}?PRIVATE KEY-----(?:[^-]++|(?!' . self::PEM_END . ')-)*+(?:' . self::PEM_END . ')?/' => self::FILTERED,
+        // scheme://user:password@host — the password may contain `/` or `@` (up to the last `@` of the word); a port
+        // followed by a path (`host:8080/…`) is not a password. The user part may be empty (`redis://:pw@host`).
+        '#([a-z][a-z0-9+.-]{0,31}+://[^\s:/@]*+):(?!\d{1,5}/)(?:[^\s@]++@)++#i' => '$1:' . self::FILTERED . '@',
+        '/\beyJ[\w-]{8,}+\.eyJ[\w-]{8,}+\.[\w-]{8,}+/'                          => self::FILTERED,
+        '/\b(Bearer|Basic)\s++[\w.~+\/=-]{8,}+/i'                               => '$1 ' . self::FILTERED,
+        '/\b(?:sk|rk|pk)_(?:live|test)_\w{10,}+/'                               => self::FILTERED,
+        '/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/'                                       => self::FILTERED,
+        '/\bgh[pousr]_[A-Za-z0-9]{30,}+\b/'                                     => self::FILTERED,
+        '/\bgithub_pat_\w{30,}+/'                                               => self::FILTERED,
+        '/\bxox[abposr]-[\w-]{10,}+/'                                           => self::FILTERED,
+        '/\bAIza[\w-]{35}\b/'                                                   => self::FILTERED,
+        '/\bsk-(?:ant-)?[\w-]{20,}+/'                                           => self::FILTERED,
+        // Beacon worker keys (remote Messenger commands).
+        '/(?<![A-Za-z0-9])bwk_[A-Za-z0-9_-]{20,}+/' => self::FILTERED,
+        // name=value / name: value / 'name' => 'value' / "name": "value with spaces". The name may be part of a
+        // longer identifier (`DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, `beacon_secret`, `smtp_pass`); short names
+        // (`pass`, `pwd`, `pin`, `otp`, `cvv`) must end there. Quoted values are filtered whole (quotes kept);
+        // unquoted values, and a quoted value whose closing quote is missing (a cut message), run to whitespace, a
+        // quote, `&`, `,`, `}` or `]`.
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+")(?:[^"\\\\]++|\\\\.)*+"/i'               => '$1' . self::FILTERED . '"',
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+\')(?:[^\'\\\\]++|\\\\.)*+\'/i'            => '$1' . self::FILTERED . "'",
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?:=>|[:=])\s*+["\']?+)(?!\[Filtered\])[^\s"\'&,}\]]++/i' => '$1' . self::FILTERED,
     ];
+
+    /** Payment card numbers: Amex (15 digits) and Visa / Mastercard / Discover prefixes (15–19 digits); Luhn checked. */
+    private const CARD_PATTERN = '/(?<![\d-])(?:3[47](?:[ -]?\d){13}|(?:4|5[1-5]|2[2-7]|6)(?:[ -]?\d){14,18})(?![\d-])/';
+
+    /** `scheme://userinfo@` at the start of a string. */
+    private const URI_USERINFO = '#^([a-z][a-z0-9+.-]*+://)[^/@]++@#i';
 
     /**
      * Extra query parameter names that carry one-time credentials in URLs only: Symfony login links
-     * (`hash`), signed URLs (`_hash`, `signature`, `X-Amz-Signature`, `sig`) and OAuth callbacks (`code`).
-     * Not part of {@see SENSITIVE_KEY}: a `code` or `hash` key in Monolog context or console input is
-     * usually not a secret.
+     * (`hash`), signed URLs (`_hash`, `signature`, `X-Amz-Signature`, `sig`), OAuth callbacks (`code`), API keys
+     * (`key`), reset links (`reset`) and session ids (`sid`). Not part of {@see SENSITIVE_KEY}: a `code`, `key` or
+     * `hash` key in Monolog context or console input is usually not a secret.
      */
-    private const SENSITIVE_URL_PARAMETER = '/^(?:_?hash|sig|code)$|signature|token/i';
+    private const SENSITIVE_URL_PARAMETER = '/^(?:_?hash|sig|code|key|reset|sid)$|signature|token/i';
 
     /**
      * Replace credential-shaped substrings in free text (an exception or log message), keeping the rest.
+     *
+     * Text longer than {@see MAX_MESSAGE_LENGTH} bytes is cut first ({@see TRUNCATED} appended); on a PCRE error the
+     * whole text becomes {@see REDACTION_FAILED}.
      */
     public static function redactMessage(string $message): string
     {
@@ -77,15 +136,26 @@ final class SensitiveValueRedactor
             return $message;
         }
 
-        return preg_replace(array_keys(self::SECRET_PATTERNS), array_values(self::SECRET_PATTERNS), $message) ?? $message;
+        $redacted = preg_replace(array_keys(self::SECRET_PATTERNS), array_values(self::SECRET_PATTERNS), self::truncate($message));
+        if ($redacted === null || preg_last_error() !== PREG_NO_ERROR) {
+            return self::REDACTION_FAILED;
+        }
+
+        $masked = preg_replace_callback(
+            self::CARD_PATTERN,
+            static fn (array $match): string => self::passesLuhn($match[0]) ? self::FILTERED : $match[0],
+            $redacted,
+        );
+
+        return $masked === null || preg_last_error() !== PREG_NO_ERROR ? self::REDACTION_FAILED : $masked;
     }
 
     /**
-     * Whether `$key` looks sensitive (password, token, DSN, …).
+     * Whether `$key` looks sensitive (password, token, DSN, …). A PCRE error counts as sensitive (fail closed).
      */
     public static function isSensitiveKey(string $key): bool
     {
-        return preg_match(self::SENSITIVE_KEY, $key) === 1;
+        return preg_match(self::SENSITIVE_KEY, $key) !== 0;
     }
 
     /**
@@ -114,8 +184,8 @@ final class SensitiveValueRedactor
     /**
      * Redact a raw query string pair by pair (`token=abc&page=2` → `token=[Filtered]&page=2`).
      *
-     * URL credential parameters (`hash`, `_hash`, `signature`, `sig`, `code`, `token`) are filtered; every
-     * other decoded key/value goes through the same rules as {@see redactMap()}; pairs that do not
+     * URL credential parameters (`hash`, `_hash`, `signature`, `sig`, `code`, `key`, `reset`, `sid`, `token`) are
+     * filtered; every other decoded key/value goes through the same rules as {@see redactMap()}; pairs that do not
      * need redaction are kept byte for byte (order, encoding and array syntax preserved).
      */
     public static function redactQueryString(string $queryString): string
@@ -150,11 +220,14 @@ final class SensitiveValueRedactor
     }
 
     /**
-     * Whether a query parameter name (array syntax `name[...]` reduced to `name`) carries a URL credential.
+     * Whether a query parameter name (array syntax `name[...]` reduced to `name`) carries a URL credential. A PCRE
+     * error counts as a credential (fail closed).
      */
     private static function isSensitiveUrlParameter(string $key): bool
     {
-        return preg_match(self::SENSITIVE_URL_PARAMETER, (string) preg_replace('/\[.*$/s', '', trim($key))) === 1;
+        $name = preg_replace('/\[.*+$/s', '', trim($key));
+
+        return $name === null || preg_match(self::SENSITIVE_URL_PARAMETER, $name) !== 0;
     }
 
     /**
@@ -213,7 +286,8 @@ final class SensitiveValueRedactor
     }
 
     /**
-     * Hide credential-shaped strings (URI userinfo, long tokens).
+     * Hide credential-shaped strings: a PEM private key hides the whole value; URI userinfo
+     * (`scheme://user:pass@host` → `scheme://[Filtered]@host`), then the free-text rules of {@see redactMessage()}.
      */
     private static function redactString(string $value): string
     {
@@ -221,16 +295,57 @@ final class SensitiveValueRedactor
             return $value;
         }
 
-        // scheme://user:pass@host → scheme://[Filtered]@host
-        if (preg_match('#^([a-z][a-z0-9+.-]*://)([^/@]+)@#i', $value) === 1) {
-            return (string) preg_replace('#^([a-z][a-z0-9+.-]*://)([^/@]+)@#i', '$1' . self::FILTERED . '@', $value);
-        }
-
         $lower = strtolower($value);
         if (str_contains($lower, '-----begin') && str_contains($lower, 'private key')) {
             return self::FILTERED;
         }
 
+        $value = preg_replace(self::URI_USERINFO, '$1' . self::FILTERED . '@', $value);
+        if ($value === null || preg_last_error() !== PREG_NO_ERROR) {
+            return self::REDACTION_FAILED;
+        }
+
         return self::redactMessage($value);
+    }
+
+    /**
+     * Cut free text at {@see MAX_MESSAGE_LENGTH} bytes. The cut moves back at most three bytes so that a valid UTF-8
+     * character is not split; invalid UTF-8 is cut where it is.
+     */
+    private static function truncate(string $message): string
+    {
+        if (strlen($message) <= self::MAX_MESSAGE_LENGTH) {
+            return $message;
+        }
+
+        $cut = self::MAX_MESSAGE_LENGTH;
+        for ($step = 0; $step < 3 && (ord($message[$cut]) & 0xC0) === 0x80; ++$step) {
+            --$cut;
+        }
+
+        return substr($message, 0, $cut) . self::TRUNCATED;
+    }
+
+    private static function passesLuhn(string $match): bool
+    {
+        $sum    = 0;
+        $double = false;
+        for ($i = strlen($match) - 1; $i >= 0; --$i) {
+            $char = $match[$i];
+            if ($char === ' ' || $char === '-') {
+                continue;
+            }
+            $digit = (int) $char;
+            if ($double) {
+                $digit *= 2;
+                if ($digit > 9) {
+                    $digit -= 9;
+                }
+            }
+            $sum += $digit;
+            $double = !$double;
+        }
+
+        return $sum % 10 === 0;
     }
 }

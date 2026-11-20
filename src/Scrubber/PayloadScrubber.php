@@ -9,11 +9,14 @@ use function is_array;
 use function is_int;
 use function is_object;
 use function is_string;
+use function preg_last_error;
 use function preg_match;
 use function preg_replace;
 use function preg_replace_callback;
 use function strlen;
 use function strtolower;
+
+use const PREG_NO_ERROR;
 
 /**
  * Default payload scrubber (option `scrub`, on by default), run on event and transaction payloads BEFORE
@@ -118,11 +121,11 @@ final class PayloadScrubber
     }
 
     /**
-     * True for a key the scrubber replaces with `[Filtered]`.
+     * True for a key the scrubber replaces with `[Filtered]`. A PCRE error counts as sensitive (fail closed).
      */
     public static function isSensitiveKey(string $key): bool
     {
-        return SensitiveValueRedactor::isSensitiveKey($key) || preg_match(self::EXTRA_SENSITIVE_KEY, $key) === 1;
+        return SensitiveValueRedactor::isSensitiveKey($key) || preg_match(self::EXTRA_SENSITIVE_KEY, $key) !== 0;
     }
 
     /**
@@ -134,7 +137,8 @@ final class PayloadScrubber
     }
 
     /**
-     * Replace 13–19 digit runs (optionally grouped by spaces or dashes) that pass the Luhn check.
+     * Replace 13–19 digit runs (optionally grouped by spaces or dashes) that pass the Luhn check. On a PCRE error the
+     * whole text becomes {@see SensitiveValueRedactor::REDACTION_FAILED} (fail closed).
      */
     public static function maskCards(string $text): string
     {
@@ -142,11 +146,13 @@ final class PayloadScrubber
             return $text;
         }
 
-        return (string) preg_replace_callback(
+        $masked = preg_replace_callback(
             self::CARD_PATTERN,
             static fn (array $match): string => self::luhn($match[0]) ? SensitiveValueRedactor::FILTERED : $match[0],
             $text,
         );
+
+        return $masked === null || preg_last_error() !== PREG_NO_ERROR ? SensitiveValueRedactor::REDACTION_FAILED : $masked;
     }
 
     /**

@@ -76,7 +76,7 @@ final class SensitiveValueRedactor
     private const NAME_START = '(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])))';
 
     /** A value that is exactly `[Filtered]` (an earlier rule already filtered all of it) is left alone. */
-    private const NOT_FILTERED_ALREADY = '(?!\[Filtered\](?:[\s"\'&,}\]]|\z))';
+    private const NOT_FILTERED_ALREADY = '(?!\[Filtered\](?:[\s"\'&,}]|\z))';
 
     /** End marker of a PEM private key. */
     private const PEM_END = '-----END [A-Z ]{0,32}?PRIVATE KEY-----';
@@ -109,11 +109,12 @@ final class SensitiveValueRedactor
         // longer identifier (`DB_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, `beacon_secret`, `smtp_pass`); short names
         // (`pass`, `pwd`, `pin`, `otp`, `cvv`) must end there. Quoted values are filtered whole (quotes kept); a
         // quoted value whose closing quote is missing is filtered to the end of the text. Unquoted values run to
-        // whitespace, a quote, `&`, `,`, `}` or `]`; a `[Filtered]` left inside them by an earlier rule does not end
+        // whitespace, a quote, `&`, `,` or `}` (a `]` does not end them, so `[token=abc]` loses its final `]`); a
+        // `[Filtered]` left inside them by an earlier rule does not end
         // them, so the rest of the value is filtered too.
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+")(?:[^"\\\\]++|\\\\.?)*+("|\z)/i'                                                   => '$1' . self::FILTERED . '$2',
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+\')(?:[^\'\\\\]++|\\\\.?)*+(\'|\z)/i'                                                => '$1' . self::FILTERED . '$2',
-        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+["\']?+)' . self::NOT_FILTERED_ALREADY . '(?:\[Filtered\]|[^\s"\'&,}\]\[]++|\[)++/i' => '$1' . self::FILTERED,
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+")(?:[^"\\\\]++|\\\\.?)*+("|\z)/i'                                                 => '$1' . self::FILTERED . '$2',
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+\')(?:[^\'\\\\]++|\\\\.?)*+(\'|\z)/i'                                              => '$1' . self::FILTERED . '$2',
+        '/' . self::NAME_START . '(' . self::SECRET_NAME . '["\']?\s*+(?>=>|[:=])\s*+["\']?+)' . self::NOT_FILTERED_ALREADY . '(?:\[Filtered\]|[^\s"\'&,}\[]++|\[)++/i' => '$1' . self::FILTERED,
     ];
 
     /** Payment card numbers: Amex (15 digits) and Visa / Mastercard / Discover prefixes (15–19 digits); Luhn checked. */

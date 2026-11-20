@@ -33,8 +33,8 @@ All notable changes to this project are documented here. The format follows
   `dbPassword`), quoted values filtered whole (an unclosed quoted value to the end of the text), Beacon worker keys
   (`bwk_…`), Luhn-valid card numbers in messages, and the URL parameters `key`, `reset` and `sid`. URL passwords may
   contain `/` or `@` or have an empty user, in free text and in a string that starts with `scheme://user:pass@`. A
-  string with URI userinfo also gets the free-text patterns, and a `[Filtered]` left inside an unquoted value by an
-  earlier rule no longer ends that value. New public constants: `REDACTION_FAILED`, `MAX_MESSAGE_LENGTH`,
+  string with URI userinfo also gets the free-text patterns, and neither a `[Filtered]` left inside an unquoted value
+  by an earlier rule nor a `[` or `]` in it ends that value (so `[token=abc]` loses its final `]`). New public constants: `REDACTION_FAILED`, `MAX_MESSAGE_LENGTH`,
   `TRUNCATED`.
 
 ## [0.3.1] - 2026-11-17

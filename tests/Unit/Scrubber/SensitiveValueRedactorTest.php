@@ -483,11 +483,25 @@ final class SensitiveValueRedactorTest extends TestCase
         // The provider-key prefix is assembled at runtime so no credential-looking literal is committed.
         $stripeKey = implode('_', ['sk', 'live', bin2hex(random_bytes(8))]);
         self::assertSame('password=[Filtered] ok', SensitiveValueRedactor::redactMessage('password=' . $stripeKey . '.Z' . $secret . ' ok'));
-        // `]` ends an unquoted value; the `[` inside it does not.
-        self::assertSame('password=[Filtered]] ok', SensitiveValueRedactor::redactMessage('password=ab[' . $secret . '] ok'));
+        // Neither `[` nor `]` ends an unquoted value (audit XF-4).
+        self::assertSame('password=[Filtered] ok', SensitiveValueRedactor::redactMessage('password=ab[' . $secret . '] ok'));
         // `=>` is one separator: a filtered `'…' => '[Filtered]'` pair is not filtered again from its `=`.
         self::assertSame("['password' => '[Filtered]', 'user' => 'app']", SensitiveValueRedactor::redactMessage("['password' => '" . $secret . "', 'user' => 'app']"));
         self::assertSame('password=[Filtered], ok', SensitiveValueRedactor::redactMessage('password=[Filtered], ok'));
+    }
+
+    /**
+     * Audit XF-4: a `]` inside an unquoted value does not end it. Accepted trade-off: `[token=abc]` loses its `]`.
+     */
+    public function testClosingBracketInsideAnUnquotedValueDoesNotEndIt(): void
+    {
+        $secret = 'Fk' . bin2hex(random_bytes(8));
+
+        self::assertSame('password=[Filtered] next', SensitiveValueRedactor::redactMessage('password=ab]cd' . $secret . ' next'));
+        self::assertSame('password=[Filtered]', SensitiveValueRedactor::redactMessage('password=ab[cd]ef' . $secret));
+        self::assertSame('DB_PASSWORD=[Filtered] x', SensitiveValueRedactor::redactMessage('DB_PASSWORD=Pa]ss' . $secret . ' x'));
+        self::assertSame('[token=[Filtered] x', SensitiveValueRedactor::redactMessage('[token=abc] x'));
+        self::assertSame("['token' => [Filtered], 'a' => 1]", SensitiveValueRedactor::redactMessage("['token' => abc], 'a' => 1]"));
     }
 
     /**

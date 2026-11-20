@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 0.3.2](#to-032)
 - [To 0.3.1](#to-031)
 - [To 0.3.0](#to-030)
 - [To 0.3.0](#to-030-1)
@@ -12,6 +13,14 @@
   - [Coming from BeaconBundle](#coming-from-beaconbundle)
 
 ## Unreleased
+
+## To 0.3.2
+
+From **0.3.1**:
+
+```bash
+composer update nowo-tech/beacon-php
+```
 
 ## To 0.3.1
 

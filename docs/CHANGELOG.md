@@ -6,12 +6,15 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[0.3.2] - 2026-11-20](#032---2026-11-20)
 - [[0.3.1] - 2026-11-17](#031---2026-11-17)
 - [[0.3.0] - 2026-11-17](#030---2026-11-17)
 - [[0.2.0] - 2026-11-11](#020---2026-11-11)
 - [[0.1.0] - 2026-11-09](#010---2026-11-09)
 
 ## [Unreleased]
+
+## [0.3.2] - 2026-11-20
 
 ### Security
 

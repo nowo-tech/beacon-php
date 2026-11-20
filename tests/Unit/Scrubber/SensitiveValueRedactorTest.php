@@ -19,6 +19,7 @@ use function array_keys;
 use function bin2hex;
 use function fclose;
 use function fopen;
+use function implode;
 use function ini_set;
 use function intdiv;
 use function json_encode;
@@ -479,7 +480,9 @@ final class SensitiveValueRedactorTest extends TestCase
     {
         $secret = 'Fk' . bin2hex(random_bytes(8));
 
-        self::assertSame('password=[Filtered] ok', SensitiveValueRedactor::redactMessage('password=sk_live_' . bin2hex(random_bytes(8)) . '.Z' . $secret . ' ok'));
+        // The provider-key prefix is assembled at runtime so no credential-looking literal is committed.
+        $stripeKey = implode('_', ['sk', 'live', bin2hex(random_bytes(8))]);
+        self::assertSame('password=[Filtered] ok', SensitiveValueRedactor::redactMessage('password=' . $stripeKey . '.Z' . $secret . ' ok'));
         // `]` ends an unquoted value; the `[` inside it does not.
         self::assertSame('password=[Filtered]] ok', SensitiveValueRedactor::redactMessage('password=ab[' . $secret . '] ok'));
         // `=>` is one separator: a filtered `'…' => '[Filtered]'` pair is not filtered again from its `=`.

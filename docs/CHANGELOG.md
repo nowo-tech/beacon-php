@@ -13,6 +13,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- `Scrubber\SensitiveValueRedactor` fails closed: when a PCRE call fails (backtrack, JIT stack or match limit), the
+  text becomes `SensitiveValueRedactor::REDACTION_FAILED` (`[Filtered: redaction failed]`) and a key counts as
+  sensitive; the original value is never returned. The same applies to `PayloadScrubber::maskCards()` /
+  `isSensitiveKey()`, `DatabaseExceptionContext::scrubSql()` and `IpStripper::isClientAddressHeader()`. Quantifiers
+  that could backtrack are possessive or bounded. Patterns stay byte-oriented, so invalid UTF-8 never makes them fail.
+- Free text is cut at `MAX_MESSAGE_LENGTH` (64 KiB, ` [truncated]` appended) before redaction. When the cut falls
+  inside a word, that word (the trailing run of non-whitespace, up to 4 KiB) is dropped too, so a token, URL, JWT
+  or key cut in half is never sent in part; the cut never splits a valid UTF-8 character. `Scope` tag values longer
+  than 200 characters and frame-var strings longer than 1,024 characters are redacted before they are cut.
+
+### Changed
+
+- The redaction rules are aligned with BeaconBundle 1.27 (the stricter rule kept where the two differed): more
+  sensitive key names (`passphrase`, `private`, `cookie`, `session`, `signature`, `iban` and whole-token `pass`,
+  `pwd`, `pin`, `otp`, `cvv`, `cvc`, `card`), `NAME=value` pairs inside longer identifiers (`DB_PASSWORD`,
+  `dbPassword`), quoted values filtered whole (an unclosed quoted value to the end of the text), Beacon worker keys
+  (`bwk_…`), Luhn-valid card numbers in messages, and the URL parameters `key`, `reset` and `sid`. URL passwords may
+  contain `/` or `@` or have an empty user, in free text and in a string that starts with `scheme://user:pass@`. A
+  string with URI userinfo also gets the free-text patterns, and neither a `[Filtered]` left inside an unquoted value
+  by an earlier rule nor a `[` or `]` in it ends that value (so `[token=abc]` loses its final `]`). New public constants: `REDACTION_FAILED`, `MAX_MESSAGE_LENGTH`,
+  `TRUNCATED`.
+
 ## [0.3.1] - 2026-11-17
 
 ### Fixed

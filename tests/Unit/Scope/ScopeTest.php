@@ -85,4 +85,19 @@ final class ScopeTest extends TestCase
         self::assertSame([], $scope->getExtra());
         self::assertSame([], $scope->getTags());
     }
+
+    /**
+     * Audit XF-1: a long tag value is redacted before the 200-character cut; short values are kept as they are.
+     */
+    public function testLongTagValuesAreRedactedBeforeTheCut(): void
+    {
+        $secret = bin2hex(random_bytes(16));
+        $scope  = new Scope();
+        $scope->setTag('long', str_repeat('y', 180) . ' token=' . $secret . ' ' . str_repeat('z', 50));
+        $scope->setTag('short', 'token=abc');
+
+        $tags = $scope->getTags();
+        self::assertSame(str_repeat('y', 180) . ' token=[Filtered] zz', $tags['long']);
+        self::assertSame('token=abc', $tags['short']);
+    }
 }

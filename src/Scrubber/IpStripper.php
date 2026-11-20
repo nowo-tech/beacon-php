@@ -92,15 +92,20 @@ final class IpStripper
             return true;
         }
 
-        $spaced = (string) preg_replace(['/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'], ['$1 $2', '$1 $2'], $name);
-        $words  = preg_split('/[-_.\s]+/', strtolower($spaced)) ?: [];
+        // camelCase humps become spaces (`XForwardedFor` → `X Forwarded For`, `HTTPClientIP` → `HTTP Client IP`); the
+        // lookahead keeps it linear. A PCRE error counts as a client address header (fail closed).
+        $spaced = preg_replace(['/([a-z0-9])([A-Z])/', '/([A-Z])(?=[A-Z][a-z])/'], ['$1 $2', '$1 '], $name);
+        $words  = $spaced === null ? false : preg_split('/[-_.\s]++/', strtolower($spaced));
+        if ($words === false) {
+            return true;
+        }
         foreach ($words as $word) {
             if (in_array($word, self::ADDRESS_WORDS, true)) {
                 return true;
             }
         }
 
-        return preg_match(self::JOINED_PATTERN, $name) === 1 || preg_match(self::IP_HEADER_PATTERN, $name) === 1;
+        return preg_match(self::JOINED_PATTERN, $name) !== 0 || preg_match(self::IP_HEADER_PATTERN, $name) !== 0;
     }
 
     /**

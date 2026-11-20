@@ -65,4 +65,14 @@ final class IpStripperTest extends TestCase
     {
         self::assertSame($expected, IpStripper::isClientAddressHeader($name));
     }
+
+    public function testClientAddressHeaderNamesSplitCamelCase(): void
+    {
+        foreach (['XForwardedFor', 'HTTPClientIP', 'X-Real-Ip', 'RemoteAddr', 'XMLHttpSocket', 'ViaProxy', 'Forwarded'] as $name) {
+            self::assertTrue(IpStripper::isClientAddressHeader($name), $name);
+        }
+        foreach (['UserAgent', 'XMLHttpRequest', 'Accept-Language', 'PAGEID', 'Tipping'] as $name) {
+            self::assertFalse(IpStripper::isClientAddressHeader($name), $name);
+        }
+    }
 }

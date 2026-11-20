@@ -165,12 +165,20 @@ final class FrameVarsSerializer
         return $out;
     }
 
+    /**
+     * Long strings are redacted BEFORE the cut: a secret cut in half no longer matches its pattern.
+     */
     private static function truncateString(string $value): string
     {
         if (mb_strlen($value) <= self::MAX_STRING) {
             return $value;
         }
 
-        return mb_substr($value, 0, self::MAX_STRING) . '…';
+        $redacted = SensitiveValueRedactor::redactValue($value);
+        if (!is_string($redacted) || mb_strlen($redacted) <= self::MAX_STRING) {
+            return is_string($redacted) ? $redacted : SensitiveValueRedactor::FILTERED;
+        }
+
+        return mb_substr($redacted, 0, self::MAX_STRING) . '…';
     }
 }

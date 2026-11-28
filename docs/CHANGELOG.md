@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- PHP 8.6: `composer.json` allows PHP below 8.7 (was below 8.6). CI adds a forward-compatibility workflow with a
+  PHP 8.6 cell and a Symfony 8.2 cell (both stable, no allowed failures).
+
 ## [0.3.2] - 2026-11-20
 
 ### Security
